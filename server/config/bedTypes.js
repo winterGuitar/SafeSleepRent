@@ -8,7 +8,7 @@ module.exports = {
       "price": 30,
       "deposit": 300,
       "image": "/images/bed1.png",
-      "stock": 31,
+      "stock": 29,
       "available": true,
       "features": [
         "铝合金材质",

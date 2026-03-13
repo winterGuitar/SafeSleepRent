@@ -49,19 +49,5 @@
         <text class="order-text">我的订单</text>
       </view>
     </view>
-
-    <!-- 结算栏 -->
-    <view class="bottom-bar" wx:if="{{totalQuantity > 0}}">
-      <view class="total-info">
-        <text class="total-text">已选 {{totalQuantity}} 张床</text>
-        <text class="deposit-text">押金: ¥{{totalDeposit}}</text>
-      </view>
-      <view class="action-buttons">
-        <button class="pay-btn" bindtap="handleWeChatPay">
-          <text class="pay-icon">💳</text>
-          立即支付
-        </button>
-      </view>
-    </view>
   </view>
 </view>
