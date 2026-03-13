@@ -1,0 +1,67 @@
+<!--index.wxml-->
+<view class="container">
+  <!-- 折叠床类型列表 -->
+  <view class="bed-list">
+    <view class="bed-item" wx:for="{{bedList}}" wx:key="id">
+      <view class="bed-info">
+        <image class="bed-image" src="{{item.image || '/images/bed-placeholder.png'}}" mode="aspectFill" binderror="onImageError"></image>
+        <view class="bed-details">
+          <view class="bed-name">{{item.name}}</view>
+          <view class="bed-desc">{{item.description}}</view>
+          <view class="bed-info-row">
+            <view class="bed-price">
+              <text class="price-unit">¥</text>
+              <text class="price-value">{{item.price}}</text>
+              <text class="price-unit">/天</text>
+            </view>
+            <!-- 数量选择 -->
+            <view class="quantity-wrapper">
+              <view class="quantity-control">
+                <view class="qty-btn qty-minus {{item.quantity === 0 ? 'disabled' : ''}}" bindtap="decreaseQuantity" data-index="{{index}}">-</view>
+                <view class="qty-value">{{item.quantity}}</view>
+                <view class="qty-btn qty-plus {{item.quantity >= item.stock ? 'disabled' : ''}}" bindtap="increaseQuantity" data-index="{{index}}">+</view>
+              </view>
+              <view class="stock-info">库存: {{item.stock}}</view>
+            </view>
+          </view>
+          <view class="bed-deposit">
+            <text class="deposit-label">押金: ¥{{item.deposit}}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 支付按钮 -->
+      <view class="item-pay-area">
+        <button class="item-pay-btn {{item.quantity === 0 ? 'disabled' : ''}}" bindtap="payItem" data-index="{{index}}" disabled="{{item.quantity === 0}}">
+          <text class="pay-icon">💳</text>
+          支付
+        </button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部区域 -->
+  <view class="bottom-area">
+    <!-- 我的订单按钮 -->
+    <view class="order-btn-bar">
+      <view class="order-btn" bindtap="goToOrderPage">
+        <text class="order-icon">📋</text>
+        <text class="order-text">我的订单</text>
+      </view>
+    </view>
+
+    <!-- 结算栏 -->
+    <view class="bottom-bar" wx:if="{{totalQuantity > 0}}">
+      <view class="total-info">
+        <text class="total-text">已选 {{totalQuantity}} 张床</text>
+        <text class="deposit-text">押金: ¥{{totalDeposit}}</text>
+      </view>
+      <view class="action-buttons">
+        <button class="pay-btn" bindtap="handleWeChatPay">
+          <text class="pay-icon">💳</text>
+          立即支付
+        </button>
+      </view>
+    </view>
+  </view>
+</view>

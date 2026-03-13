@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>医院租床 - 后台管理系统</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 侧边栏 -->
+  <div class="sidebar">
+    <div class="logo">
+      <h2>医院租床</h2>
+      <p>后台管理系统</p>
+    </div>
+    
+    <nav class="nav">
+      <a href="#dashboard" class="nav-item active" data-page="dashboard">
+        <span class="icon">📊</span>
+        <span class="text">数据概览</span>
+      </a>
+      <a href="#orders" class="nav-item" data-page="orders">
+        <span class="icon">📋</span>
+        <span class="text">订单管理</span>
+      </a>
+      <a href="#bedTypes" class="nav-item" data-page="bedTypes">
+        <span class="icon">🛏️</span>
+        <span class="text">床位管理</span>
+      </a>
+      <a href="#inventory" class="nav-item" data-page="inventory">
+        <span class="icon">📦</span>
+        <span class="text">库存管理</span>
+      </a>
+      <a href="#settings" class="nav-item" data-page="settings">
+        <span class="icon">⚙️</span>
+        <span class="text">系统设置</span>
+      </a>
+    </nav>
+  </div>
+
+  <!-- 主内容区 -->
+  <div class="main-content">
+    <!-- 顶部导航 -->
+    <div class="top-bar">
+      <h1 id="page-title">数据概览</h1>
+      <div class="user-info">
+        <span id="ws-status" class="ws-status ws-disconnected">🔴 未连接</span>
+        <span>管理员</span>
+      </div>
+    </div>
+
+    <!-- 页面内容 -->
+    <div id="page-content">
+      <!-- 数据概览页面 -->
+      <div id="page-dashboard" class="page active">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">📊</div>
+            <div class="stat-info">
+              <h3>总订单数</h3>
+              <p class="stat-value" id="stat-total-orders">0</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">💰</div>
+            <div class="stat-info">
+              <h3>总押金</h3>
+              <p class="stat-value" id="stat-total-deposit">¥0</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">✅</div>
+            <div class="stat-info">
+              <h3>已支付</h3>
+              <p class="stat-value" id="stat-paid">0</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⏳</div>
+            <div class="stat-info">
+              <h3>待支付</h3>
+              <p class="stat-value" id="stat-unpaid">0</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">↩️</div>
+            <div class="stat-info">
+              <h3>已退还</h3>
+              <p class="stat-value" id="stat-refunded">0</p>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🛏️</div>
+            <div class="stat-info">
+              <h3>床位总数</h3>
+              <p class="stat-value" id="stat-total-beds">0</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="charts-section">
+          <div class="chart-card">
+            <h3>订单状态分布</h3>
+            <div class="chart-placeholder" id="order-status-chart"></div>
+          </div>
+          <div class="chart-card">
+            <h3>近期订单</h3>
+            <div class="recent-orders" id="recent-orders-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 订单管理页面 -->
+      <div id="page-orders" class="page">
+        <div class="page-header">
+          <div class="search-box">
+            <input type="text" id="order-search" placeholder="搜索订单号...">
+            <button onclick="searchOrders()">搜索</button>
+          </div>
+          <div class="filter-box">
+            <select id="order-filter" onchange="filterOrders()">
+              <option value="all">全部订单</option>
+              <option value="unpaid">待支付</option>
+              <option value="paid">已支付</option>
+              <option value="refunded">已退还</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table" id="orders-table">
+            <thead>
+              <tr>
+                <th>订单号</th>
+                <th>床位信息</th>
+                <th>总押金</th>
+                <th>状态</th>
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="orders-tbody">
+              <!-- 订单数据将通过JS加载 -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 床位管理页面 -->
+      <div id="page-bedTypes" class="page">
+        <div class="page-header">
+          <button class="btn btn-primary" onclick="showAddBedModal()">+ 添加床位类型</button>
+        </div>
+
+        <div class="bed-grid" id="bed-types-grid">
+          <!-- 床位卡片将通过JS加载 -->
+        </div>
+      </div>
+
+      <!-- 库存管理页面 -->
+      <div id="page-inventory" class="page">
+        <div class="page-header">
+          <h3>库存概览</h3>
+        </div>
+
+        <div class="inventory-list" id="inventory-list">
+          <!-- 库存数据将通过JS加载 -->
+        </div>
+      </div>
+
+      <!-- 系统设置页面 -->
+      <div id="page-settings" class="page">
+        <div class="settings-section">
+          <h3>押金规则</h3>
+          <div class="form-group">
+            <label>押金倍数</label>
+            <input type="number" id="setting-deposit-multiplier" value="10">
+          </div>
+          <div class="form-group">
+            <label>最小押金（元）</label>
+            <input type="number" id="setting-min-deposit" value="200">
+          </div>
+          <div class="form-group">
+            <label>最大押金（元）</label>
+            <input type="number" id="setting-max-deposit" value="2000">
+          </div>
+          <button class="btn btn-primary" onclick="saveSettings()">保存设置</button>
+        </div>
+
+        <div class="settings-section">
+          <h3>营业时间</h3>
+          <div class="form-group">
+            <label>营业开始时间</label>
+            <input type="time" id="setting-business-start" value="08:00">
+          </div>
+          <div class="form-group">
+            <label>营业结束时间</label>
+            <input type="time" id="setting-business-end" value="20:00">
+          </div>
+          <button class="btn btn-primary" onclick="saveSettings()">保存设置</button>
+        </div>
+
+        <div class="settings-section">
+          <h3>库存管理</h3>
+          <div class="form-group">
+            <label>库存预警数量</label>
+            <input type="number" id="setting-inventory-warning" value="10">
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="setting-allow-overbooking"> 允许超额预订
+            </label>
+          </div>
+          <button class="btn btn-primary" onclick="saveSettings()">保存设置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 弹窗 -->
+  <div id="modal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal()">&times;</span>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- 加载脚本 -->
+  <script src="js/api.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/orders.js"></script>
+  <script src="js/bedTypes.js"></script>
+  <script src="js/inventory.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

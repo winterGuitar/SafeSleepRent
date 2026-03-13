@@ -1,0 +1,77 @@
+<!--order.wxml-->
+<view class="container">
+  <!-- 过滤器按钮 -->
+  <view class="filter-bar">
+    <view class="filter-item {{currentTab === 'unpaid' ? 'active' : ''}}" bindtap="switchTab" data-tab="unpaid">
+      待支付
+    </view>
+    <view class="filter-item {{currentTab === 'completed' ? 'active' : ''}}" bindtap="switchTab" data-tab="completed">
+      已完成
+    </view>
+    <view class="filter-item {{currentTab === 'cancelled' ? 'active' : ''}}" bindtap="switchTab" data-tab="cancelled">
+      已取消
+    </view>
+  </view>
+
+  <view class="order-list">
+    <view class="order-item" wx:if="{{filteredOrders.length > 0}}" wx:for="{{filteredOrders}}" wx:key="orderId">
+      <view class="order-header">
+        <text class="order-no">订单号: {{item.orderId}}</text>
+        <text class="order-status {{item.status === 'paid' ? 'paid' : item.status === 'cancelled' ? 'cancelled' : item.status === 'refunded' ? 'refunded' : 'unpaid'}}">
+          {{item.status === 'paid' ? '已支付' : item.status === 'cancelled' ? '已取消' : item.status === 'refunded' ? '已退款' : '待支付'}}
+        </text>
+      </view>
+
+      <view class="order-beds">
+        <view class="bed-summary" wx:for="{{item.beds}}" wx:for-item="bed" wx:key="id">
+          <text class="bed-name">{{bed.name}}</text>
+          <text class="bed-qty">x{{bed.quantity}}</text>
+          <text class="bed-deposit">押金: ¥{{bed.deposit * bed.quantity}}</text>
+        </view>
+      </view>
+
+      <view class="order-footer">
+        <text class="order-time">{{item.createTime}}</text>
+        <text class="order-total">总押金: ¥{{item.totalDeposit}}</text>
+      </view>
+
+      <!-- 待支付订单的操作按钮 -->
+      <view class="order-actions" wx:if="{{item.status === 'unpaid'}}">
+        <button class="action-btn btn-cancel" bindtap="cancelOrder" data-orderno="{{item.orderId}}">
+          取消订单
+        </button>
+        <button class="action-btn btn-primary" bindtap="goToPay" data-orderno="{{item.orderId}}">
+          去支付
+        </button>
+      </view>
+
+      <!-- 已支付订单的操作按钮（只在待支付标签下显示） -->
+      <view class="order-actions" wx:if="{{currentTab === 'unpaid' && item.status === 'paid'}}">
+        <button class="action-btn" bindtap="returnDeposit" data-orderno="{{item.orderId}}">
+          退还押金
+        </button>
+        <button class="action-btn" bindtap="viewOrder" data-orderno="{{item.orderId}}">
+          查看详情
+        </button>
+      </view>
+
+      <!-- 已退款订单的提示 -->
+      <view class="order-actions" wx:if="{{item.status === 'refunded'}}">
+        <view class="refunded-info">
+          <text>退款时间: {{item.refundTime}}</text>
+        </view>
+      </view>
+
+      <!-- 已取消订单的提示 -->
+      <view class="order-actions" wx:if="{{item.status === 'cancelled'}}">
+        <view class="cancelled-info">
+          <text>取消时间: {{item.cancelTime}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="empty-state" wx:if="{{filteredOrders.length === 0}}">
+      <text class="empty-text">{{currentTab === 'cancelled' ? '暂无已取消订单' : currentTab === 'completed' ? '暂无已完成订单' : '暂无待支付订单'}}</text>
+    </view>
+  </view>
+</view>

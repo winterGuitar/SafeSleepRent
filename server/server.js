@@ -1,0 +1,970 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const crypto = require('crypto');
+const http = require('http');
+const config = require('./config/appConfig');
+
+const app = express();
+const server = http.createServer(app);
+const PORT = config.server.port;
+
+// WebSocket连接存储
+const wsClients = new Map();
+
+// 中间件
+app.use(cors());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// 订单数据存储（生产环境请使用数据库）
+let orders = new Map();
+let orderIdCounter = 1;
+
+// ==================== 工具函数 ====================
+
+// 生成订单号
+function generateOrderId() {
+  const timestamp = Date.now();
+  const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  return `ORD${timestamp}${random}`;
+}
+
+// 生成随机字符串
+function generateNonceStr(length = 32) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+// 生成MD5签名
+function generateMD5Sign(params, apiKey) {
+  // 排序参数
+  const sortedKeys = Object.keys(params).sort();
+  let stringA = '';
+  
+  sortedKeys.forEach(key => {
+    if (params[key] !== undefined && params[key] !== '') {
+      stringA += `${key}=${params[key]}&`;
+    }
+  });
+  
+  stringA += `key=${apiKey}`;
+  
+  return crypto.createHash('md5').update(stringA, 'utf8').digest('hex').toUpperCase();
+}
+
+// 格式化日期
+function formatDate(date) {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const seconds = String(d.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
+// ==================== API路由 ====================
+
+// 引入床位类型路由
+const bedTypeRoutes = require('./routes/bedTypes');
+
+// 健康检查
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    message: '服务器运行正常',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// ==================== 床位类型相关接口 ====================
+
+// 获取所有床位类型
+app.get('/api/bedTypes', bedTypeRoutes.getBedTypes);
+
+// 根据ID获取床位类型
+app.get('/api/bedTypes/:id', bedTypeRoutes.getBedTypeById);
+
+// 添加床位类型
+app.post('/api/bedTypes', (req, res) => {
+  req.broadcastToClients = broadcastToClients;
+  bedTypeRoutes.addBedType(req, res);
+});
+
+// 更新床位类型
+app.put('/api/bedTypes/:id', (req, res) => {
+  req.broadcastToClients = broadcastToClients;
+  bedTypeRoutes.updateBedType(req, res);
+});
+
+// 删除床位类型
+app.delete('/api/bedTypes/:id', (req, res) => {
+  req.broadcastToClients = broadcastToClients;
+  bedTypeRoutes.deleteBedType(req, res);
+});
+
+// 获取可用的床位类型
+app.get('/api/bedTypes/available', bedTypeRoutes.getAvailableBedTypes);
+
+// 获取床位库存信息
+app.get('/api/bedTypes/inventory', bedTypeRoutes.getBedInventory);
+
+// 获取押金规则
+app.get('/api/rules/deposit', bedTypeRoutes.getDepositRules);
+
+// 获取租赁政策
+app.get('/api/rules/rental', bedTypeRoutes.getRentalPolicy);
+
+// 获取营业时间
+app.get('/api/rules/businessHours', bedTypeRoutes.getBusinessHours);
+
+// 保存系统设置
+app.post('/api/settings', (req, res) => {
+  req.broadcastToClients = broadcastToClients;
+  bedTypeRoutes.saveSystemSettings(req, res);
+});
+
+// 创建订单
+app.post('/api/order/create', (req, res) => {
+  try {
+    const { beds, totalDeposit, openid } = req.body;
+
+    if (!beds || beds.length === 0) {
+      return res.json({
+        code: 400,
+        message: '订单信息不能为空'
+      });
+    }
+
+    // 检查库存
+    try {
+      const bedTypeRoutes = require('./routes/bedTypes');
+      const configData = bedTypeRoutes.loadBedTypesConfig();
+
+      for (const orderBed of beds) {
+        const bedType = configData.bedTypes.find(bt => bt.id === orderBed.id);
+        if (!bedType) {
+          return res.json({
+            code: 400,
+            message: `床位类型 ${orderBed.name} 不存在`
+          });
+        }
+
+        if (bedType.stock < orderBed.quantity) {
+          return res.json({
+            code: 400,
+            message: `${bedType.name} 库存不足，当前库存：${bedType.stock}`
+          });
+        }
+      }
+    } catch (error) {
+      console.error('检查库存失败:', error);
+      return res.json({
+        code: 500,
+        message: '检查库存失败'
+      });
+    }
+
+    // 生成订单号
+    const orderId = generateOrderId();
+
+    // 创建订单数据
+    const order = {
+      orderId: orderId,
+      beds: beds,
+      totalDeposit: totalDeposit,
+      openid: openid || 'openid_' + Date.now(),
+      status: 'unpaid',
+      createTime: formatDate(new Date()),
+      updateTime: formatDate(new Date())
+    };
+
+    // 存储订单
+    orders.set(orderId, order);
+
+    console.log('创建订单:', order);
+
+    res.json({
+      code: 200,
+      message: '订单创建成功',
+      data: {
+        orderId: orderId,
+        order: order
+      }
+    });
+  } catch (error) {
+    console.error('创建订单失败:', error);
+    res.json({
+      code: 500,
+      message: '订单创建失败'
+    });
+  }
+});
+
+// 支付成功回调
+app.post('/api/order/pay', (req, res) => {
+  try {
+    const { orderId } = req.body;
+
+    if (!orderId) {
+      return res.json({
+        code: 400,
+        message: '订单号不能为空'
+      });
+    }
+
+    const order = orders.get(orderId);
+
+    if (!order) {
+      return res.json({
+        code: 404,
+        message: '订单不存在'
+      });
+    }
+
+    // 只有待支付的订单可以支付
+    if (order.status !== 'unpaid') {
+      return res.json({
+        code: 400,
+        message: '订单状态不允许支付'
+      });
+    }
+
+    // 再次检查库存（防止订单创建后到支付期间库存被占用）
+    try {
+      const bedTypeRoutes = require('./routes/bedTypes');
+      const configData = bedTypeRoutes.loadBedTypesConfig();
+
+      for (const orderBed of order.beds) {
+        const bedType = configData.bedTypes.find(bt => bt.id === orderBed.id);
+        if (!bedType || bedType.stock < orderBed.quantity) {
+          return res.json({
+            code: 400,
+            message: `${orderBed.name || '床位'} 库存不足，无法完成支付`
+          });
+        }
+      }
+
+      // 扣减库存
+      order.beds.forEach(orderBed => {
+        const bedType = configData.bedTypes.find(bt => bt.id === orderBed.id);
+        if (bedType) {
+          const oldStock = bedType.stock;
+          bedType.stock = Math.max(0, bedType.stock - orderBed.quantity);
+          console.log(`床位 ${bedType.name} 库存更新: ${oldStock} -> ${bedType.stock}`);
+        }
+      });
+
+      // 保存库存变更
+      bedTypeRoutes.saveBedTypesConfig(configData);
+
+      // 广播床位类型更新
+      broadcastToClients({
+        type: 'bed_types_update',
+        data: configData.bedTypes
+      });
+    } catch (error) {
+      console.error('更新库存失败:', error);
+      return res.json({
+        code: 500,
+        message: '更新库存失败'
+      });
+    }
+
+    // 更新订单状态为已支付
+    order.status = 'paid';
+    order.payTime = formatDate(new Date());
+    order.updateTime = formatDate(new Date());
+    orders.set(orderId, order);
+
+    console.log('订单支付成功:', order);
+
+    // 广播订单更新
+    broadcastToClients({
+      type: 'order_paid',
+      orderId: orderId
+    });
+
+    res.json({
+      code: 200,
+      message: '支付成功',
+      data: order
+    });
+  } catch (error) {
+    console.error('支付失败:', error);
+    res.json({
+      code: 500,
+      message: '支付失败'
+    });
+  }
+});
+
+// 获取微信支付参数
+app.post('/api/payment/getParams', async (req, res) => {
+  try {
+    const { orderId, openid } = req.body;
+
+    if (!orderId) {
+      return res.json({
+        code: 400,
+        message: '订单号不能为空'
+      });
+    }
+
+    // 获取订单信息
+    const order = orders.get(orderId);
+    if (!order) {
+      return res.json({
+        code: 404,
+        message: '订单不存在'
+      });
+    }
+
+    // 检查是否为开发环境（使用模拟支付）
+    const isMockPayment = !config.bed.payment.wechat.mchid || 
+                          config.bed.payment.wechat.mchid === 'your_mchid' ||
+                          !config.bed.payment.wechat.apiKey || 
+                          config.bed.payment.wechat.apiKey === 'your_api_key';
+
+    if (isMockPayment) {
+      // 开发环境：返回模拟支付参数
+      console.log('使用模拟支付模式');
+
+      // 生成时间戳
+      const timeStamp = Math.floor(Date.now() / 1000).toString();
+      const nonceStr = generateNonceStr();
+      const packageStr = `prepay_id=MOCK_PAY_${Date.now()}`;
+
+      // 生成签名（模拟）
+      const paySign = generateMD5Sign({
+        appId: config.bed.payment.wechat.appid,
+        timeStamp: timeStamp,
+        nonceStr: nonceStr,
+        package: packageStr,
+        signType: 'MD5'
+      }, 'mock_api_key_for_development');
+
+      res.json({
+        code: 200,
+        message: '获取支付参数成功（模拟支付）',
+        data: {
+          timeStamp: timeStamp,
+          nonceStr: nonceStr,
+          package: packageStr,
+          signType: 'MD5',
+          paySign: paySign
+        }
+      });
+
+      // 模拟支付成功回调（3秒后）
+      setTimeout(() => {
+        const order = orders.get(orderId);
+        if (order && order.status === 'unpaid') {
+          // 扣减库存
+          try {
+            const bedTypeRoutes = require('./routes/bedTypes');
+            const configData = bedTypeRoutes.loadBedTypesConfig();
+
+            for (const orderBed of order.beds) {
+              const bedType = configData.bedTypes.find(bt => bt.id === orderBed.id);
+              if (bedType) {
+                const oldStock = bedType.stock;
+                bedType.stock = Math.max(0, bedType.stock - orderBed.quantity);
+                console.log(`床位 ${bedType.name} 库存更新: ${oldStock} -> ${bedType.stock}`);
+              }
+            }
+
+            // 保存库存变更
+            bedTypeRoutes.saveBedTypesConfig(configData);
+
+            // 广播床位类型更新
+            broadcastToClients({
+              type: 'bed_types_update',
+              data: configData.bedTypes
+            });
+          } catch (error) {
+            console.error('更新库存失败:', error);
+          }
+
+          order.status = 'paid';
+          order.transactionId = `MOCK_TXN_${Date.now()}`;
+          order.updateTime = formatDate(new Date());
+          orders.set(orderId, order);
+          console.log('模拟支付成功:', order);
+
+          // 广播订单支付通知
+          broadcastToClients({
+            type: 'order_paid',
+            orderId: orderId
+          });
+        }
+      }, 3000);
+
+      return;
+    }
+
+    // 生产环境：调用真实的微信支付API
+    console.log('使用真实支付模式');
+
+    // 生成时间戳
+    const timeStamp = Math.floor(Date.now() / 1000).toString();
+    const nonceStr = generateNonceStr();
+
+    // TODO: 调用微信统一下单API
+    // const unifiedOrderResult = await callWechatUnifiedOrder({...});
+    // const prepayId = unifiedOrderResult.prepay_id;
+    const packageStr = `prepay_id=${generateNonceStr()}`; // 实际使用时需调用微信支付API
+
+    // 生成签名
+    const signParams = {
+      appId: config.bed.payment.wechat.appid,
+      timeStamp: timeStamp,
+      nonceStr: nonceStr,
+      package: packageStr,
+      signType: 'MD5'
+    };
+    const paySign = generateMD5Sign(signParams, config.bed.payment.wechat.apiKey);
+
+    console.log('获取支付参数:', {
+      orderId: orderId,
+      openid: openid
+    });
+
+    // 返回支付参数
+    res.json({
+      code: 200,
+      message: '获取支付参数成功',
+      data: {
+        timeStamp: timeStamp,
+        nonceStr: nonceStr,
+        package: packageStr,
+        signType: 'MD5',
+        paySign: paySign
+      }
+    });
+  } catch (error) {
+    console.error('获取支付参数失败:', error);
+    res.json({
+      code: 500,
+      message: '获取支付参数失败'
+    });
+  }
+});
+
+// 微信支付回调
+app.post('/api/payment/notify', (req, res) => {
+  try {
+    console.log('收到微信支付回调:', req.body);
+
+    // 解析回调数据
+    const { out_trade_no, transaction_id, result_code } = req.body;
+
+    if (!out_trade_no) {
+      return res.send('<xml><return_code><![CDATA[FAIL]]></return_code><return_msg><![CDATA[参数错误]]></return_msg></xml>');
+    }
+
+    // 更新订单状态
+    const order = orders.get(out_trade_no);
+    if (order) {
+      // 只有待支付的订单可以更新为已支付
+      if (order.status === 'unpaid') {
+        // 扣减库存
+        try {
+          const bedTypeRoutes = require('./routes/bedTypes');
+          const configData = bedTypeRoutes.loadBedTypesConfig();
+
+          for (const orderBed of order.beds) {
+            const bedType = configData.bedTypes.find(bt => bt.id === orderBed.id);
+            if (bedType) {
+              const oldStock = bedType.stock;
+              bedType.stock = Math.max(0, bedType.stock - orderBed.quantity);
+              console.log(`床位 ${bedType.name} 库存更新: ${oldStock} -> ${bedType.stock}`);
+            }
+          }
+
+          // 保存库存变更
+          bedTypeRoutes.saveBedTypesConfig(configData);
+
+          // 广播床位类型更新
+          broadcastToClients({
+            type: 'bed_types_update',
+            data: configData.bedTypes
+          });
+        } catch (error) {
+          console.error('更新库存失败:', error);
+        }
+
+        order.status = 'paid';
+        order.transactionId = transaction_id;
+        order.updateTime = formatDate(new Date());
+        orders.set(out_trade_no, order);
+
+        console.log('订单支付成功:', order);
+
+        // 广播订单支付通知
+        broadcastToClients({
+          type: 'order_paid',
+          orderId: out_trade_no
+        });
+      } else {
+        console.log('订单状态不是待支付，无需更新:', order.status);
+      }
+    } else {
+      console.log('订单不存在:', out_trade_no);
+    }
+
+    // 返回成功响应给微信
+    res.send('<xml><return_code><![CDATA[SUCCESS]]></return_code><return_msg><![CDATA[OK]]></return_msg></xml>');
+  } catch (error) {
+    console.error('支付回调处理失败:', error);
+    res.send('<xml><return_code><![CDATA[FAIL]]></return_code><return_msg><![CDATA[处理失败]]></return_msg></xml>');
+  }
+});
+
+// 查询订单
+app.get('/api/order/query', (req, res) => {
+  try {
+    const { orderId } = req.query;
+
+    if (!orderId) {
+      return res.json({
+        code: 400,
+        message: '订单号不能为空'
+      });
+    }
+
+    const order = orders.get(orderId);
+    if (!order) {
+      return res.json({
+        code: 404,
+        message: '订单不存在'
+      });
+    }
+
+    res.json({
+      code: 200,
+      message: '查询成功',
+      data: order
+    });
+  } catch (error) {
+    console.error('查询订单失败:', error);
+    res.json({
+      code: 500,
+      message: '查询订单失败'
+    });
+  }
+});
+
+// 获取订单列表
+app.get('/api/order/list', (req, res) => {
+  try {
+    const { openid } = req.query;
+
+    let orderList = [];
+    
+    if (openid) {
+      // 获取指定用户的订单
+      orders.forEach((order) => {
+        if (order.openid === openid) {
+          orderList.push(order);
+        }
+      });
+    } else {
+      // 获取所有订单
+      orderList = Array.from(orders.values());
+    }
+
+    // 按创建时间倒序排序
+    orderList.sort((a, b) => new Date(b.createTime) - new Date(a.createTime));
+
+    res.json({
+      code: 200,
+      message: '查询成功',
+      data: orderList
+    });
+  } catch (error) {
+    console.error('获取订单列表失败:', error);
+    res.json({
+      code: 500,
+      message: '获取订单列表失败'
+    });
+  }
+});
+
+// 退还押金
+app.post('/api/order/refund', (req, res) => {
+  try {
+    const { orderId } = req.body;
+
+    if (!orderId) {
+      return res.json({
+        code: 400,
+        message: '订单号不能为空'
+      });
+    }
+
+    const order = orders.get(orderId);
+    if (!order) {
+      return res.json({
+        code: 404,
+        message: '订单不存在'
+      });
+    }
+
+    if (order.status !== 'paid') {
+      return res.json({
+        code: 400,
+        message: '订单未支付，无法退还押金'
+      });
+    }
+
+    // 更新订单状态
+    order.status = 'refunded';
+    order.refundTime = formatDate(new Date());
+    order.updateTime = formatDate(new Date());
+    orders.set(orderId, order);
+
+    // 恢复库存
+    try {
+      const bedTypeRoutes = require('./routes/bedTypes');
+      const configData = bedTypeRoutes.loadBedTypesConfig();
+
+      order.beds.forEach(orderBed => {
+        const bedType = configData.bedTypes.find(bt => bt.id === orderBed.id);
+        if (bedType) {
+          const oldStock = bedType.stock;
+          bedType.stock += orderBed.quantity;
+          console.log(`床位 ${bedType.name} 库存恢复: ${oldStock} -> ${bedType.stock}`);
+        }
+      });
+
+      // 保存库存变更
+      bedTypeRoutes.saveBedTypesConfig(configData);
+
+      // 广播床位类型更新
+      broadcastToClients({
+        type: 'bed_types_update',
+        data: configData.bedTypes
+      });
+    } catch (error) {
+      console.error('恢复库存失败:', error);
+    }
+
+    console.log('押金退还成功:', order);
+
+    // 广播订单退款成功
+    broadcastToClients({
+      type: 'order_refunded',
+      orderId: orderId
+    });
+
+    res.json({
+      code: 200,
+      message: '押金退还成功',
+      data: order
+    });
+  } catch (error) {
+    console.error('退还押金失败:', error);
+    res.json({
+      code: 500,
+      message: '退还押金失败'
+    });
+  }
+});
+
+// 删除订单
+app.delete('/api/order/delete', (req, res) => {
+  try {
+    const { orderId } = req.body;
+
+    if (!orderId) {
+      return res.json({
+        code: 400,
+        message: '订单号不能为空'
+      });
+    }
+
+    const deleted = orders.delete(orderId);
+
+    if (!deleted) {
+      return res.json({
+        code: 404,
+        message: '订单不存在'
+      });
+    }
+
+    console.log('删除订单:', orderId);
+
+    // 广播订单删除通知
+    broadcastToClients({
+      type: 'order_deleted',
+      orderId: orderId
+    });
+
+    res.json({
+      code: 200,
+      message: '删除成功'
+    });
+  } catch (error) {
+    console.error('删除订单失败:', error);
+    res.json({
+      code: 500,
+      message: '删除订单失败'
+    });
+  }
+});
+
+// 取消订单
+app.post('/api/order/cancel', (req, res) => {
+  try {
+    const { orderId } = req.body;
+
+    if (!orderId) {
+      return res.json({
+        code: 400,
+        message: '订单号不能为空'
+      });
+    }
+
+    const order = orders.get(orderId);
+    if (!order) {
+      return res.json({
+        code: 404,
+        message: '订单不存在'
+      });
+    }
+
+    // 只有待支付的订单可以取消
+    if (order.status !== 'unpaid') {
+      return res.json({
+        code: 400,
+        message: '只有待支付的订单可以取消'
+      });
+    }
+
+    // 更新订单状态为已取消
+    order.status = 'cancelled';
+    order.cancelTime = formatDate(new Date());
+    order.updateTime = formatDate(new Date());
+    orders.set(orderId, order);
+
+    console.log('取消订单:', order);
+
+    // 广播订单更新
+    broadcastToClients({
+      type: 'order_cancelled',
+      orderId: orderId
+    });
+
+    res.json({
+      code: 200,
+      message: '订单已取消',
+      data: order
+    });
+  } catch (error) {
+    console.error('取消订单失败:', error);
+    res.json({
+      code: 500,
+      message: '取消订单失败'
+    });
+  }
+});
+
+// 获取系统统计信息
+app.get('/api/stats', (req, res) => {
+  try {
+    let paidCount = 0;
+    let unpaidCount = 0;
+    let refundedCount = 0;
+    let totalDeposit = 0;
+
+    orders.forEach((order) => {
+      if (order.status === 'paid') {
+        paidCount++;
+        totalDeposit += order.totalDeposit;
+      } else if (order.status === 'unpaid') {
+        unpaidCount++;
+      } else if (order.status === 'refunded') {
+        refundedCount++;
+      }
+    });
+
+    res.json({
+      code: 200,
+      message: '查询成功',
+      data: {
+        totalOrders: orders.size,
+        paidOrders: paidCount,
+        unpaidOrders: unpaidCount,
+        refundedOrders: refundedCount,
+        totalDeposit: totalDeposit
+      }
+    });
+  } catch (error) {
+    console.error('获取统计信息失败:', error);
+    res.json({
+      code: 500,
+      message: '获取统计信息失败'
+    });
+  }
+});
+
+// ==================== WebSocket实时通知 ====================
+
+// 广播消息给所有连接的客户端
+function broadcastToClients(message) {
+  const messageStr = JSON.stringify(message);
+  let successCount = 0;
+  let failedCount = 0;
+
+  console.log(`=== 广播消息开始 ===`);
+  console.log(`消息类型: ${message.type}`);
+  console.log(`当前连接客户端数: ${wsClients.size}`);
+  console.log(`客户端列表: ${Array.from(wsClients.keys()).join(', ')}`);
+
+  wsClients.forEach((ws, clientId) => {
+    console.log(`检查客户端 ${clientId}, readyState: ${ws.readyState} (OPEN=${ws.OPEN})`);
+    if (ws.readyState === ws.OPEN) {
+      try {
+        ws.send(messageStr);
+        successCount++;
+        console.log(`✓ 成功发送给客户端 ${clientId}`);
+      } catch (error) {
+        failedCount++;
+        console.error(`✗ 发送给客户端 ${clientId} 失败:`, error);
+      }
+    } else {
+      failedCount++;
+      console.log(`✗ 客户端 ${clientId} 未就绪，readyState=${ws.readyState}`);
+    }
+  });
+
+  console.log(`=== 广播消息结束 ===`);
+  console.log(`总连接数=${wsClients.size}, 成功发送=${successCount}, 失败=${failedCount}`);
+}
+
+// HTTP接口：通知所有小程序刷新数据
+app.post('/api/notify/refresh', (req, res) => {
+  try {
+    const { type, data } = req.body;
+
+    // 广播刷新消息
+    broadcastToClients({
+      type: type || 'data_update',
+      timestamp: Date.now(),
+      data: data || {}
+    });
+
+    res.json({
+      code: 200,
+      message: '刷新通知发送成功',
+      data: {
+        clientCount: wsClients.size
+      }
+    });
+  } catch (error) {
+    console.error('发送刷新通知失败:', error);
+    res.json({
+      code: 500,
+      message: '发送刷新通知失败'
+    });
+  }
+});
+
+// ==================== 启动服务器 ====================
+
+// WebSocket服务器
+const wss = new (require('ws').Server)({
+  server,
+  path: '/ws'  // 指定WebSocket路径
+});
+
+wss.on('connection', (ws, request) => {
+  console.log('=== 新的WebSocket连接建立 ===');
+
+  // 获取客户端信息（如openid等）
+  const urlParams = new URL(request.url, `http://${request.headers.host}`);
+  const openid = urlParams.searchParams.get('openid');
+  const client = urlParams.searchParams.get('client');
+
+  // 确定客户端ID：优先使用openid，如果没有则使用client，如果都没有则使用'anonymous'
+  const clientId = openid || client || 'anonymous';
+
+  console.log(`客户端标识: ${clientId} (openid=${openid}, client=${client})`);
+  console.log(`请求URL: ${request.url}`);
+  console.log(`WebSocket readyState: ${ws.readyState}`);
+
+  // 存储连接
+  wsClients.set(clientId, ws);
+  console.log(`当前连接客户端数: ${wsClients.size}`);
+  console.log(`已连接客户端列表: ${Array.from(wsClients.keys()).join(', ')}`);
+
+  // 发送连接成功消息
+  const connectionMsg = JSON.stringify({
+    type: 'connection_established',
+    clientId: clientId,
+    openid: openid,
+    client: client,
+    timestamp: Date.now()
+  });
+  try {
+    ws.send(connectionMsg);
+    console.log(`✓ 已发送连接确认消息给客户端 ${clientId}`);
+  } catch (error) {
+    console.error(`✗ 发送连接确认消息失败:`, error);
+  }
+
+  // 处理客户端消息
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      console.log(`收到客户端 ${clientId} 消息:`, data);
+
+      // 处理心跳
+      if (data.type === 'ping') {
+        const pongMsg = JSON.stringify({
+          type: 'pong',
+          timestamp: Date.now()
+        });
+        ws.send(pongMsg);
+        console.log(`✓ 已回复pong给客户端 ${clientId}`);
+      }
+    } catch (error) {
+      console.error(`解析客户端 ${clientId} 消息失败:`, error);
+    }
+  });
+
+  // 连接关闭
+  ws.on('close', () => {
+    wsClients.delete(clientId);
+    console.log(`=== WebSocket连接关闭 ===`);
+    console.log(`客户端 ${clientId} 已断开`);
+    console.log(`剩余连接数: ${wsClients.size}`);
+    console.log(`剩余客户端列表: ${Array.from(wsClients.keys()).join(', ')}`);
+  });
+
+  // 错误处理
+  ws.on('error', (error) => {
+    console.error(`=== WebSocket错误 ===`);
+    console.error(`客户端 ${clientId} 发生错误:`, error);
+    wsClients.delete(clientId);
+    console.log(`已从客户端列表中移除 ${clientId}`);
+  });
+});
+
+server.listen(PORT, () => {
+  console.log('='.repeat(50));
+  console.log(`医院租床后端服务器已启动`);
+  console.log(`HTTP地址: http://localhost:${PORT}`);
+  console.log(`WebSocket地址: ws://localhost:${PORT}/ws`);
+  console.log(`API文档: http://localhost:${PORT}/api/health`);
+  console.log('='.repeat(50));
+});
+
+module.exports = { app, server, broadcastToClients };
