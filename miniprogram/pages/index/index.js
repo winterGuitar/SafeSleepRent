@@ -119,7 +119,9 @@ Page({
             }
           })
 
-          const bedList = res.data.data.map(bed => {
+          const bedList = res.data.data
+            .filter(bed => bed.available !== false) // 过滤掉不可用的床位
+            .map(bed => {
             // 如果库存小于已选数量，则调整为库存值
             const quantity = currentQuantities[bed.id] || 0
             const adjustedQuantity = Math.min(quantity, bed.stock)

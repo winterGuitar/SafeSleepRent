@@ -35,7 +35,7 @@ async function getOrders() {
 
 // 查询订单
 async function getOrder(orderId) {
-  return apiRequest(`/order/query?orderId=${orderId}`);
+  return apiRequest(`/order/query/${orderId}`);
 }
 
 // 删除订单
