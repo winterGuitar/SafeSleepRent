@@ -41,29 +41,29 @@ function updateOrderStatusChart(data) {
   const refundedPercent = ((data.refundedOrders || 0) / total * 100).toFixed(1);
 
   chartContainer.innerHTML = `
-    <div style="text-align: center;">
-      <div style="margin-bottom: 20px;">
-        <div style="display: inline-block; width: 60px; height: 60px; border-radius: 50%; background: #07C160; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold;">
+    <div style="display: flex; justify-content: space-around; align-items: flex-start; padding: 20px 0;">
+      <div style="text-align: center; flex: 1;">
+        <div style="width: 60px; height: 60px; border-radius: 50%; background: #07C160; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; margin: 0 auto;">
           ${paidPercent}%
         </div>
         <p style="margin-top: 10px; color: #666;">已支付</p>
-        <p style="font-size: 24px; font-weight: bold; color: #07C160;">${data.paidOrders || 0}</p>
+        <p style="font-size: 20px; font-weight: bold; color: #07C160;">${data.paidOrders || 0}</p>
       </div>
-      
-      <div style="margin: 20px 0;">
-        <div style="display: inline-block; width: 60px; height: 60px; border-radius: 50%; background: #ff6b35; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold;">
+
+      <div style="text-align: center; flex: 1;">
+        <div style="width: 60px; height: 60px; border-radius: 50%; background: #ff6b35; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; margin: 0 auto;">
           ${unpaidPercent}%
         </div>
         <p style="margin-top: 10px; color: #666;">待支付</p>
-        <p style="font-size: 24px; font-weight: bold; color: #ff6b35;">${data.unpaidOrders || 0}</p>
+        <p style="font-size: 20px; font-weight: bold; color: #ff6b35;">${data.unpaidOrders || 0}</p>
       </div>
-      
-      <div>
-        <div style="display: inline-block; width: 60px; height: 60px; border-radius: 50%; background: #2196f3; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold;">
+
+      <div style="text-align: center; flex: 1;">
+        <div style="width: 60px; height: 60px; border-radius: 50%; background: #2196f3; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; margin: 0 auto;">
           ${refundedPercent}%
         </div>
         <p style="margin-top: 10px; color: #666;">已退还</p>
-        <p style="font-size: 24px; font-weight: bold; color: #2196f3;">${data.refundedOrders || 0}</p>
+        <p style="font-size: 20px; font-weight: bold; color: #2196f3;">${data.refundedOrders || 0}</p>
       </div>
     </div>
   `;

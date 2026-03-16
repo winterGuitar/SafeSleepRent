@@ -128,6 +128,13 @@ Page({
               ...bed,
               quantity: adjustedQuantity
             }
+          }).sort((a, b) => {
+            // 先按价格从低到高排序
+            if (a.price !== b.price) {
+              return a.price - b.price;
+            }
+            // 价格相同时，按库存从低到高排序
+            return a.stock - b.stock;
           })
 
           console.log('准备更新的床位列表:', bedList.map(b => ({ id: b.id, name: b.name, stock: b.stock, quantity: b.quantity })))
@@ -307,21 +314,51 @@ Page({
             })
           }, 1500)
         } else {
-          // 支付失败
-          wx.showToast({
-            title: res.data.message || '支付失败',
-            icon: 'none',
-            duration: 2000
-          })
+          // 支付失败 - 删除待支付订单
+          this.cancelUnpaidOrder(orderId, res.data.message || '支付失败')
         }
       },
       fail: (err) => {
         wx.hideLoading()
         console.error('支付请求失败:', err)
+        // 网络错误也删除订单
+        this.cancelUnpaidOrder(orderId, '网络错误，支付失败')
+      }
+    })
+  },
+
+  // 取消未支付的订单
+  cancelUnpaidOrder: function(orderId, message) {
+    wx.request({
+      url: config.getApiUrl('/api/order/cancel'),
+      method: 'POST',
+      data: {
+        orderId: orderId
+      },
+      success: () => {
+        // 重新加载床位数据
+        this.loadBedTypes()
+
+        // 显示提示
+        wx.showModal({
+          title: '支付失败',
+          content: message + '，库存可能已被占用，请重新选择床位。',
+          showCancel: false,
+          confirmText: '确定',
+          success: () => {
+            // 重置选择
+            this.setData({
+              bedList: this.data.bedList.map(bed => ({ ...bed, quantity: 0 })),
+              totalDeposit: 0
+            })
+          }
+        })
+      },
+      fail: () => {
         wx.showToast({
-          title: '网络错误，支付失败',
+          title: message,
           icon: 'none',
-          duration: 2000
+          duration: 3000
         })
       }
     })

@@ -59,11 +59,6 @@ async function getBedTypes() {
   return apiRequest('/bedTypes');
 }
 
-// 获取库存信息
-async function getInventory() {
-  return apiRequest('/bedTypes/inventory');
-}
-
 // 获取押金规则
 async function getDepositRules() {
   return apiRequest('/rules/deposit');
@@ -100,15 +95,6 @@ async function updateBedTypeApi(id, bedData) {
 async function deleteBedTypeApi(id) {
   return apiRequest(`/bedTypes/${id}`, {
     method: 'DELETE'
-  });
-}
-
-// 更新库存
-async function updateInventory(id, stock) {
-  console.log('更新库存, id:', id, 'stock:', stock);
-  return apiRequest(`/bedTypes/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify({ stock: parseInt(stock) })
   });
 }
 
@@ -156,14 +142,19 @@ function connectWebSocket() {
     };
 
     ws.onmessage = (event) => {
+      console.log('===== WebSocket 收到消息 =====');
+      console.log('原始数据:', event.data);
       try {
         const message = JSON.parse(event.data);
-        console.log('收到服务器消息:', message);
+        console.log('解析后的消息:', message);
+        console.log('消息类型:', message.type);
+        console.log('============================');
 
         // 根据消息类型处理
         handleWebSocketMessage(message);
       } catch (error) {
         console.error('解析WebSocket消息失败:', error);
+        console.error('错误数据:', event.data);
       }
     };
 
@@ -214,64 +205,79 @@ function stopHeartbeat() {
  * 处理WebSocket消息
  */
 function handleWebSocketMessage(message) {
+  console.log('===== 处理 WebSocket 消息 =====');
+  console.log('消息类型:', message.type);
+  console.log('消息内容:', JSON.stringify(message));
+
   switch (message.type) {
     case 'connection_established':
-      console.log('WebSocket连接已建立');
+      console.log('✓ WebSocket连接已建立');
+      console.log('客户端ID:', message.clientId);
       break;
 
     case 'bed_types_update':
-      console.log('收到床位类型更新');
+      console.log('✓ 收到床位类型更新');
       // 刷新相关页面数据
       refreshBedTypesData();
       break;
 
     case 'settings_update':
-      console.log('收到系统设置更新');
+      console.log('✓ 收到系统设置更新');
       // 刷新设置页面数据
       refreshSettingsData();
       break;
 
     case 'order_paid':
-      console.log('收到订单支付通知');
+      console.log('✓ 收到订单支付通知');
+      console.log('订单号:', message.orderId);
       // 刷新订单和统计数据
       refreshOrderData();
       refreshDashboardData();
       break;
 
     case 'order_refunded':
-      console.log('收到订单退款通知');
+      console.log('✓ 收到订单退款通知');
+      console.log('订单号:', message.orderId);
       // 刷新订单和统计数据
       refreshOrderData();
       refreshDashboardData();
       break;
 
     case 'order_deleted':
-      console.log('收到订单删除通知');
+      console.log('✓ 收到订单删除通知');
+      console.log('订单号:', message.orderId);
       // 刷新订单和统计数据
       refreshOrderData();
       refreshDashboardData();
       break;
 
     case 'order_cancelled':
-      console.log('收到订单取消通知');
+      console.log('✓ 收到订单取消通知');
+      console.log('订单号:', message.orderId);
       // 刷新订单和统计数据
       refreshOrderData();
       refreshDashboardData();
       break;
 
     case 'data_update':
-      console.log('收到数据更新通知');
+      console.log('✓ 收到数据更新通知');
       // 刷新所有数据
       refreshAllData();
       break;
 
     case 'pong':
       // 心跳响应，无需处理
+      console.log('✓ 收到心跳响应');
+      break;
+
+    case 'server_shutdown':
+      console.log('⚠️  服务器正在关闭');
       break;
 
     default:
-      console.log('未知消息类型:', message.type);
+      console.log('✗ 未知消息类型:', message.type);
   }
+  console.log('===== 消息处理完成 =====');
 }
 
 /**

@@ -4,7 +4,7 @@ const config = require('../../config/api.js');
 Page({
   data: {
     orders: [],
-    currentTab: 'unpaid',  // 当前标签: unpaid, completed, cancelled
+    currentTab: 'completed',  // 当前标签: completed, unpaid, cancelled
     filteredOrders: [],  // 过滤后的订单列表
     socketTask: null
   },
@@ -263,14 +263,44 @@ Page({
   // 去支付
   goToPay: function(e) {
     const orderId = e.currentTarget.dataset.orderno
-    // 跳转回首页进行支付
-    wx.navigateBack({
-      delta: 1,
-      success: () => {
+
+    wx.showLoading({
+      title: '处理中...'
+    })
+
+    // 调用支付接口
+    wx.request({
+      url: config.getApiUrl('/api/order/pay'),
+      method: 'POST',
+      data: {
+        orderId: orderId
+      },
+      success: (res) => {
+        wx.hideLoading()
+
+        if (res.data.code === 200) {
+          wx.showToast({
+            title: '支付成功',
+            icon: 'success'
+          })
+          // 切换到已完成标签
+          this.setData({
+            currentTab: 'completed'
+          })
+          // 重新加载订单列表
+          this.loadOrders()
+        } else {
+          wx.showToast({
+            title: res.data.message || '支付失败',
+            icon: 'none'
+          })
+        }
+      },
+      fail: () => {
+        wx.hideLoading()
         wx.showToast({
-          title: '请在首页选择床位并支付',
-          icon: 'none',
-          duration: 2000
+          title: '网络错误',
+          icon: 'none'
         })
       }
     })

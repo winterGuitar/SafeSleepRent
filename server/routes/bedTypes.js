@@ -4,6 +4,28 @@ const config = require('../config/appConfig');
 const fs = require('fs');
 const path = require('path');
 
+// 构建完整的图片URL
+function buildImageUrl(imagePath, req) {
+  if (!imagePath) return null;
+
+  // 如果已经是完整URL，直接返回
+  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+    return imagePath;
+  }
+
+  // 如果是相对路径，构建完整URL
+  const protocol = req ? req.protocol : 'http';
+  const host = req ? req.get('host') : 'localhost:8080';
+
+  // 处理以 / 开头的路径
+  if (imagePath.startsWith('/')) {
+    return `${protocol}://${host}${imagePath}`;
+  }
+
+  // 处理相对路径
+  return `${protocol}://${host}/public/images/${imagePath}`;
+}
+
 let bedTypesData = null;
 
 // 加载床位类型配置
@@ -46,10 +68,14 @@ loadBedTypesConfig();
 async function getBedTypes(req, res) {
   try {
     const configData = loadBedTypesConfig();
+    const bedTypes = (configData.bedTypes || []).map(bed => ({
+      ...bed,
+      imageUrl: buildImageUrl(bed.image, req)
+    }));
     res.json({
       code: 200,
       message: '获取成功',
-      data: configData.bedTypes || []
+      data: bedTypes
     });
   } catch (error) {
     console.error('获取床位类型失败:', error);
@@ -272,7 +298,12 @@ async function deleteBedType(req, res) {
 async function getAvailableBedTypes(req, res) {
   try {
     const configData = loadBedTypesConfig();
-    const availableBeds = (configData.bedTypes || []).filter(bed => bed.available === true);
+    const availableBeds = (configData.bedTypes || [])
+      .filter(bed => bed.available === true)
+      .map(bed => ({
+        ...bed,
+        imageUrl: buildImageUrl(bed.image, req)
+      }));
 
     res.json({
       code: 200,

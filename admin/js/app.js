@@ -1,8 +1,8 @@
-// 页面初始化
-document.addEventListener('DOMContentLoaded', function() {
+// 页面初始化（由auth.js控制）
+function initApp() {
   initNavigation();
   loadPage('dashboard');
-});
+}
 
 // 导航初始化
 function initNavigation() {
@@ -32,7 +32,6 @@ function navigateTo(pageName) {
     'dashboard': '数据概览',
     'orders': '订单管理',
     'bedTypes': '床位管理',
-    'inventory': '库存管理',
     'settings': '系统设置'
   };
   document.getElementById('page-title').textContent = titles[pageName] || '数据概览';
@@ -63,9 +62,6 @@ function loadPage(pageName) {
         break;
       case 'bedTypes':
         loadBedTypes();
-        break;
-      case 'inventory':
-        loadInventory();
         break;
       case 'settings':
         loadSettings();

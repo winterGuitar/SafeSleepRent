@@ -12,15 +12,16 @@ module.exports = {
     https: process.env.NODE_ENV === 'production'
   },
 
-  // 数据库配置（后续扩展）
+  // 数据库配置
   database: {
-    type: 'memory', // 'memory' | 'mysql' | 'mongodb'
+    type: 'mysql', // 'memory' | 'mysql' | 'mongodb'
     mysql: {
       host: 'localhost',
       port: 3306,
       database: 'hosp_bed',
       username: 'root',
-      password: ''
+      password: '123456', // 请修改为你的MySQL密码
+      connectionLimit: 10
     },
     mongodb: {
       url: 'mongodb://localhost:27017/hosp_bed'

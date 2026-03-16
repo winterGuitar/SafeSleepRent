@@ -7,8 +7,8 @@ module.exports = {
       "description": "医用级铝合金折叠床，承重200kg，可调节角度",
       "price": 30,
       "deposit": 300,
-      "image": "/images/bed1.png",
-      "stock": 29,
+      "image": "/public/images/bed-1773493598958-259384733.png",
+      "stock": 0,
       "available": true,
       "features": [
         "铝合金材质",
@@ -24,7 +24,7 @@ module.exports = {
       "description": "电动调节床角度，遥控操作，背部腿部可独立调节",
       "price": 80,
       "deposit": 800,
-      "image": "/images/bed2.png",
+      "image": "/public/images/bed-1773493636374-121042253.png",
       "stock": 10,
       "available": true,
       "features": [
@@ -41,7 +41,7 @@ module.exports = {
       "description": "加厚床垫10cm，防褥疮设计，透气舒适",
       "price": 50,
       "deposit": 500,
-      "image": "/images/bed3.png",
+      "image": "/public/images/bed-1773494537523-486659758.png",
       "stock": 0,
       "available": true,
       "features": [
@@ -58,7 +58,7 @@ module.exports = {
       "description": "可坐可躺，带护栏，方便病人上下床",
       "price": 120,
       "deposit": 1200,
-      "image": "/images/bed4.png",
+      "image": "/public/images/bed-1773494547083-726940194.png",
       "stock": 0,
       "available": true,
       "features": [
@@ -75,7 +75,7 @@ module.exports = {
       "description": "儿童专用尺寸，安全护栏，卡通图案",
       "price": 40,
       "deposit": 400,
-      "image": "/images/bed5.png",
+      "image": "/public/images/bed-1773494555165-203885668.png",
       "stock": 18,
       "available": true,
       "features": [
@@ -86,21 +86,21 @@ module.exports = {
       ]
     },
     {
-      "id": 6,
-      "name": "经济型折叠床",
-      "code": "ECONOMY",
-      "description": "性价比高，基本功能齐全，适合短期使用",
-      "price": 25,
-      "deposit": 250,
-      "image": "/images/bed6.png",
-      "stock": 93,
-      "available": true,
+      "name": "新的床位",
+      "code": "STANDARD",
+      "description": "1111",
+      "price": 10,
+      "deposit": 100,
+      "stock": 13,
+      "image": "/public/images/bed-1773494569080-626061223.png",
       "features": [
-        "价格实惠",
-        "功能齐全",
-        "适合短期",
-        "轻便易携带"
-      ]
+        "铝合金材质",
+        "承重200kg",
+        "可调节角度",
+        "轻便折叠"
+      ],
+      "available": true,
+      "id": 7
     }
   ],
   "payment": {

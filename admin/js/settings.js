@@ -34,10 +34,6 @@ async function saveSettings() {
     businessHours: {
       start: document.getElementById('setting-business-start').value,
       end: document.getElementById('setting-business-end').value
-    },
-    inventory: {
-      warningLevel: parseInt(document.getElementById('setting-inventory-warning').value),
-      allowOverbooking: document.getElementById('setting-allow-overbooking').checked
     }
   };
 

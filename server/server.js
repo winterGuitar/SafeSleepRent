@@ -3,6 +3,9 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const crypto = require('crypto');
 const http = require('http');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const config = require('./config/appConfig');
 
 const app = express();
@@ -17,7 +20,58 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// 订单数据存储（生产环境请使用数据库）
+// 静态文件服务 - 提供图片访问
+app.use('/public', express.static(path.join(__dirname, 'public')));
+
+// 获取服务器基础URL（用于构建图片URL）
+function getServerBaseUrl(req) {
+  const protocol = req.protocol;
+  const host = req.get('host');
+  return `${protocol}://${host}`;
+}
+
+// 图片上传配置
+const uploadDir = path.join(__dirname, 'public', 'images');
+
+// 确保上传目录存在
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+  console.log(`创建图片目录: ${uploadDir}`);
+}
+
+// 配置multer
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, 'bed-' + uniqueSuffix + ext);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    // 只允许图片
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+
+    if (mimetype && extname) {
+      return cb(null, true);
+    }
+    cb(new Error('只允许上传图片文件 (jpeg, jpg, png, gif, webp)'));
+  }
+});
+
+// 数据库相关
+let db = null;
+let orderDao = null;
+
+// 内存存储（兼容模式，如果数据库不可用）
 let orders = new Map();
 let orderIdCounter = 1;
 
@@ -73,6 +127,8 @@ function formatDate(date) {
 
 // 引入床位类型路由
 const bedTypeRoutes = require('./routes/bedTypes');
+// 引入订单路由
+const orderRoutes = require('./routes/orders');
 
 // 健康检查
 app.get('/api/health', (req, res) => {
@@ -115,6 +171,38 @@ app.get('/api/bedTypes/available', bedTypeRoutes.getAvailableBedTypes);
 // 获取床位库存信息
 app.get('/api/bedTypes/inventory', bedTypeRoutes.getBedInventory);
 
+// 上传床位图片
+app.post('/api/upload/bedImage', upload.single('image'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.json({
+        code: 400,
+        message: '请选择要上传的图片'
+      });
+    }
+
+    // 返回图片URL
+    const imageUrl = `/public/images/${req.file.filename}`;
+    console.log('图片上传成功:', req.file.filename);
+
+    res.json({
+      code: 200,
+      message: '上传成功',
+      data: {
+        filename: req.file.filename,
+        url: imageUrl,
+        fullUrl: `${req.protocol}://${req.get('host')}${imageUrl}`
+      }
+    });
+  } catch (error) {
+    console.error('图片上传失败:', error);
+    res.json({
+      code: 500,
+      message: '上传失败: ' + error.message
+    });
+  }
+});
+
 // 获取押金规则
 app.get('/api/rules/deposit', bedTypeRoutes.getDepositRules);
 
@@ -132,177 +220,14 @@ app.post('/api/settings', (req, res) => {
 
 // 创建订单
 app.post('/api/order/create', (req, res) => {
-  try {
-    const { beds, totalDeposit, openid } = req.body;
-
-    if (!beds || beds.length === 0) {
-      return res.json({
-        code: 400,
-        message: '订单信息不能为空'
-      });
-    }
-
-    // 检查库存
-    try {
-      const bedTypeRoutes = require('./routes/bedTypes');
-      const configData = bedTypeRoutes.loadBedTypesConfig();
-
-      for (const orderBed of beds) {
-        const bedType = configData.bedTypes.find(bt => bt.id === orderBed.id);
-        if (!bedType) {
-          return res.json({
-            code: 400,
-            message: `床位类型 ${orderBed.name} 不存在`
-          });
-        }
-
-        if (bedType.stock < orderBed.quantity) {
-          return res.json({
-            code: 400,
-            message: `${bedType.name} 库存不足，当前库存：${bedType.stock}`
-          });
-        }
-      }
-    } catch (error) {
-      console.error('检查库存失败:', error);
-      return res.json({
-        code: 500,
-        message: '检查库存失败'
-      });
-    }
-
-    // 生成订单号
-    const orderId = generateOrderId();
-
-    // 创建订单数据
-    const order = {
-      orderId: orderId,
-      beds: beds,
-      totalDeposit: totalDeposit,
-      openid: openid || 'openid_' + Date.now(),
-      status: 'unpaid',
-      createTime: formatDate(new Date()),
-      updateTime: formatDate(new Date())
-    };
-
-    // 存储订单
-    orders.set(orderId, order);
-
-    console.log('创建订单:', order);
-
-    res.json({
-      code: 200,
-      message: '订单创建成功',
-      data: {
-        orderId: orderId,
-        order: order
-      }
-    });
-  } catch (error) {
-    console.error('创建订单失败:', error);
-    res.json({
-      code: 500,
-      message: '订单创建失败'
-    });
-  }
+  req.broadcastToClients = broadcastToClients;
+  orderRoutes.createOrder(req, res);
 });
 
-// 支付成功回调
+// 支付订单
 app.post('/api/order/pay', (req, res) => {
-  try {
-    const { orderId } = req.body;
-
-    if (!orderId) {
-      return res.json({
-        code: 400,
-        message: '订单号不能为空'
-      });
-    }
-
-    const order = orders.get(orderId);
-
-    if (!order) {
-      return res.json({
-        code: 404,
-        message: '订单不存在'
-      });
-    }
-
-    // 只有待支付的订单可以支付
-    if (order.status !== 'unpaid') {
-      return res.json({
-        code: 400,
-        message: '订单状态不允许支付'
-      });
-    }
-
-    // 再次检查库存（防止订单创建后到支付期间库存被占用）
-    try {
-      const bedTypeRoutes = require('./routes/bedTypes');
-      const configData = bedTypeRoutes.loadBedTypesConfig();
-
-      for (const orderBed of order.beds) {
-        const bedType = configData.bedTypes.find(bt => bt.id === orderBed.id);
-        if (!bedType || bedType.stock < orderBed.quantity) {
-          return res.json({
-            code: 400,
-            message: `${orderBed.name || '床位'} 库存不足，无法完成支付`
-          });
-        }
-      }
-
-      // 扣减库存
-      order.beds.forEach(orderBed => {
-        const bedType = configData.bedTypes.find(bt => bt.id === orderBed.id);
-        if (bedType) {
-          const oldStock = bedType.stock;
-          bedType.stock = Math.max(0, bedType.stock - orderBed.quantity);
-          console.log(`床位 ${bedType.name} 库存更新: ${oldStock} -> ${bedType.stock}`);
-        }
-      });
-
-      // 保存库存变更
-      bedTypeRoutes.saveBedTypesConfig(configData);
-
-      // 广播床位类型更新
-      broadcastToClients({
-        type: 'bed_types_update',
-        data: configData.bedTypes
-      });
-    } catch (error) {
-      console.error('更新库存失败:', error);
-      return res.json({
-        code: 500,
-        message: '更新库存失败'
-      });
-    }
-
-    // 更新订单状态为已支付
-    order.status = 'paid';
-    order.payTime = formatDate(new Date());
-    order.updateTime = formatDate(new Date());
-    orders.set(orderId, order);
-
-    console.log('订单支付成功:', order);
-
-    // 广播订单更新
-    broadcastToClients({
-      type: 'order_paid',
-      orderId: orderId
-    });
-
-    res.json({
-      code: 200,
-      message: '支付成功',
-      data: order
-    });
-  } catch (error) {
-    console.error('支付失败:', error);
-    res.json({
-      code: 500,
-      message: '支付失败'
-    });
-  }
+  req.broadcastToClients = broadcastToClients;
+  orderRoutes.payOrder(req, res);
 });
 
 // 获取微信支付参数
@@ -318,7 +243,12 @@ app.post('/api/payment/getParams', async (req, res) => {
     }
 
     // 获取订单信息
-    const order = orders.get(orderId);
+    let order;
+    if (config.database.type === 'mysql' && orderDao) {
+      order = await orderDao.getOrderByOrderId(orderId);
+    } else {
+      order = orders.get(orderId);
+    }
     if (!order) {
       return res.json({
         code: 404,
@@ -364,46 +294,13 @@ app.post('/api/payment/getParams', async (req, res) => {
 
       // 模拟支付成功回调（3秒后）
       setTimeout(() => {
-        const order = orders.get(orderId);
-        if (order && order.status === 'unpaid') {
-          // 扣减库存
-          try {
-            const bedTypeRoutes = require('./routes/bedTypes');
-            const configData = bedTypeRoutes.loadBedTypesConfig();
-
-            for (const orderBed of order.beds) {
-              const bedType = configData.bedTypes.find(bt => bt.id === orderBed.id);
-              if (bedType) {
-                const oldStock = bedType.stock;
-                bedType.stock = Math.max(0, bedType.stock - orderBed.quantity);
-                console.log(`床位 ${bedType.name} 库存更新: ${oldStock} -> ${bedType.stock}`);
-              }
-            }
-
-            // 保存库存变更
-            bedTypeRoutes.saveBedTypesConfig(configData);
-
-            // 广播床位类型更新
-            broadcastToClients({
-              type: 'bed_types_update',
-              data: configData.bedTypes
-            });
-          } catch (error) {
-            console.error('更新库存失败:', error);
+        const mockReq = { body: { orderId }, broadcastToClients };
+        const mockRes = {
+          json: (data) => {
+            console.log('模拟支付结果:', data);
           }
-
-          order.status = 'paid';
-          order.transactionId = `MOCK_TXN_${Date.now()}`;
-          order.updateTime = formatDate(new Date());
-          orders.set(orderId, order);
-          console.log('模拟支付成功:', order);
-
-          // 广播订单支付通知
-          broadcastToClients({
-            type: 'order_paid',
-            orderId: orderId
-          });
-        }
+        };
+        orderRoutes.payOrder(mockReq, mockRes);
       }, 3000);
 
       return;
@@ -458,7 +355,7 @@ app.post('/api/payment/getParams', async (req, res) => {
 });
 
 // 微信支付回调
-app.post('/api/payment/notify', (req, res) => {
+app.post('/api/payment/notify', async (req, res) => {
   try {
     console.log('收到微信支付回调:', req.body);
 
@@ -469,8 +366,14 @@ app.post('/api/payment/notify', (req, res) => {
       return res.send('<xml><return_code><![CDATA[FAIL]]></return_code><return_msg><![CDATA[参数错误]]></return_msg></xml>');
     }
 
-    // 更新订单状态
-    const order = orders.get(out_trade_no);
+    // 获取订单信息
+    let order;
+    if (config.database.type === 'mysql' && orderDao) {
+      order = await orderDao.getOrderByOrderId(out_trade_no);
+    } else {
+      order = orders.get(out_trade_no);
+    }
+
     if (order) {
       // 只有待支付的订单可以更新为已支付
       if (order.status === 'unpaid') {
@@ -503,7 +406,17 @@ app.post('/api/payment/notify', (req, res) => {
         order.status = 'paid';
         order.transactionId = transaction_id;
         order.updateTime = formatDate(new Date());
-        orders.set(out_trade_no, order);
+
+        // 保存订单状态
+        if (config.database.type === 'mysql' && orderDao) {
+          await orderDao.updateOrderStatus(out_trade_no, {
+            status: 'paid',
+            transactionId: transaction_id,
+            payTime: new Date()
+          });
+        } else {
+          orders.set(out_trade_no, order);
+        }
 
         console.log('订单支付成功:', order);
 
@@ -528,283 +441,72 @@ app.post('/api/payment/notify', (req, res) => {
 });
 
 // 查询订单
-app.get('/api/order/query', (req, res) => {
-  try {
-    const { orderId } = req.query;
-
-    if (!orderId) {
-      return res.json({
-        code: 400,
-        message: '订单号不能为空'
-      });
-    }
-
-    const order = orders.get(orderId);
-    if (!order) {
-      return res.json({
-        code: 404,
-        message: '订单不存在'
-      });
-    }
-
-    res.json({
-      code: 200,
-      message: '查询成功',
-      data: order
-    });
-  } catch (error) {
-    console.error('查询订单失败:', error);
-    res.json({
-      code: 500,
-      message: '查询订单失败'
-    });
-  }
+app.get('/api/order/query/:orderId', (req, res) => {
+  req.broadcastToClients = broadcastToClients;
+  orderRoutes.queryOrder(req, res);
 });
 
 // 获取订单列表
 app.get('/api/order/list', (req, res) => {
-  try {
-    const { openid } = req.query;
-
-    let orderList = [];
-    
-    if (openid) {
-      // 获取指定用户的订单
-      orders.forEach((order) => {
-        if (order.openid === openid) {
-          orderList.push(order);
-        }
-      });
-    } else {
-      // 获取所有订单
-      orderList = Array.from(orders.values());
-    }
-
-    // 按创建时间倒序排序
-    orderList.sort((a, b) => new Date(b.createTime) - new Date(a.createTime));
-
-    res.json({
-      code: 200,
-      message: '查询成功',
-      data: orderList
-    });
-  } catch (error) {
-    console.error('获取订单列表失败:', error);
-    res.json({
-      code: 500,
-      message: '获取订单列表失败'
-    });
-  }
+  req.broadcastToClients = broadcastToClients;
+  orderRoutes.getOrderList(req, res);
 });
 
 // 退还押金
 app.post('/api/order/refund', (req, res) => {
-  try {
-    const { orderId } = req.body;
-
-    if (!orderId) {
-      return res.json({
-        code: 400,
-        message: '订单号不能为空'
-      });
-    }
-
-    const order = orders.get(orderId);
-    if (!order) {
-      return res.json({
-        code: 404,
-        message: '订单不存在'
-      });
-    }
-
-    if (order.status !== 'paid') {
-      return res.json({
-        code: 400,
-        message: '订单未支付，无法退还押金'
-      });
-    }
-
-    // 更新订单状态
-    order.status = 'refunded';
-    order.refundTime = formatDate(new Date());
-    order.updateTime = formatDate(new Date());
-    orders.set(orderId, order);
-
-    // 恢复库存
-    try {
-      const bedTypeRoutes = require('./routes/bedTypes');
-      const configData = bedTypeRoutes.loadBedTypesConfig();
-
-      order.beds.forEach(orderBed => {
-        const bedType = configData.bedTypes.find(bt => bt.id === orderBed.id);
-        if (bedType) {
-          const oldStock = bedType.stock;
-          bedType.stock += orderBed.quantity;
-          console.log(`床位 ${bedType.name} 库存恢复: ${oldStock} -> ${bedType.stock}`);
-        }
-      });
-
-      // 保存库存变更
-      bedTypeRoutes.saveBedTypesConfig(configData);
-
-      // 广播床位类型更新
-      broadcastToClients({
-        type: 'bed_types_update',
-        data: configData.bedTypes
-      });
-    } catch (error) {
-      console.error('恢复库存失败:', error);
-    }
-
-    console.log('押金退还成功:', order);
-
-    // 广播订单退款成功
-    broadcastToClients({
-      type: 'order_refunded',
-      orderId: orderId
-    });
-
-    res.json({
-      code: 200,
-      message: '押金退还成功',
-      data: order
-    });
-  } catch (error) {
-    console.error('退还押金失败:', error);
-    res.json({
-      code: 500,
-      message: '退还押金失败'
-    });
-  }
+  req.broadcastToClients = broadcastToClients;
+  orderRoutes.refundOrder(req, res);
 });
 
 // 删除订单
 app.delete('/api/order/delete', (req, res) => {
-  try {
-    const { orderId } = req.body;
-
-    if (!orderId) {
-      return res.json({
-        code: 400,
-        message: '订单号不能为空'
-      });
-    }
-
-    const deleted = orders.delete(orderId);
-
-    if (!deleted) {
-      return res.json({
-        code: 404,
-        message: '订单不存在'
-      });
-    }
-
-    console.log('删除订单:', orderId);
-
-    // 广播订单删除通知
-    broadcastToClients({
-      type: 'order_deleted',
-      orderId: orderId
-    });
-
-    res.json({
-      code: 200,
-      message: '删除成功'
-    });
-  } catch (error) {
-    console.error('删除订单失败:', error);
-    res.json({
-      code: 500,
-      message: '删除订单失败'
-    });
-  }
+  req.broadcastToClients = broadcastToClients;
+  orderRoutes.deleteOrder(req, res);
 });
 
 // 取消订单
 app.post('/api/order/cancel', (req, res) => {
-  try {
-    const { orderId } = req.body;
-
-    if (!orderId) {
-      return res.json({
-        code: 400,
-        message: '订单号不能为空'
-      });
-    }
-
-    const order = orders.get(orderId);
-    if (!order) {
-      return res.json({
-        code: 404,
-        message: '订单不存在'
-      });
-    }
-
-    // 只有待支付的订单可以取消
-    if (order.status !== 'unpaid') {
-      return res.json({
-        code: 400,
-        message: '只有待支付的订单可以取消'
-      });
-    }
-
-    // 更新订单状态为已取消
-    order.status = 'cancelled';
-    order.cancelTime = formatDate(new Date());
-    order.updateTime = formatDate(new Date());
-    orders.set(orderId, order);
-
-    console.log('取消订单:', order);
-
-    // 广播订单更新
-    broadcastToClients({
-      type: 'order_cancelled',
-      orderId: orderId
-    });
-
-    res.json({
-      code: 200,
-      message: '订单已取消',
-      data: order
-    });
-  } catch (error) {
-    console.error('取消订单失败:', error);
-    res.json({
-      code: 500,
-      message: '取消订单失败'
-    });
-  }
+  req.broadcastToClients = broadcastToClients;
+  orderRoutes.cancelOrder(req, res);
 });
 
 // 获取系统统计信息
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', async (req, res) => {
   try {
-    let paidCount = 0;
-    let unpaidCount = 0;
-    let refundedCount = 0;
-    let totalDeposit = 0;
+    let stats;
 
-    orders.forEach((order) => {
-      if (order.status === 'paid') {
-        paidCount++;
-        totalDeposit += order.totalDeposit;
-      } else if (order.status === 'unpaid') {
-        unpaidCount++;
-      } else if (order.status === 'refunded') {
-        refundedCount++;
-      }
-    });
+    if (config.database.type === 'mysql' && orderDao) {
+      stats = await orderDao.getOrderStats();
+    } else {
+      let paidCount = 0;
+      let unpaidCount = 0;
+      let refundedCount = 0;
+      let totalDeposit = 0;
 
-    res.json({
-      code: 200,
-      message: '查询成功',
-      data: {
+      orders.forEach((order) => {
+        if (order.status === 'paid') {
+          paidCount++;
+          totalDeposit += order.totalDeposit;
+        } else if (order.status === 'unpaid') {
+          unpaidCount++;
+        } else if (order.status === 'refunded') {
+          refundedCount++;
+        }
+      });
+
+      stats = {
         totalOrders: orders.size,
         paidOrders: paidCount,
         unpaidOrders: unpaidCount,
         refundedOrders: refundedCount,
         totalDeposit: totalDeposit
-      }
+      };
+    }
+
+    res.json({
+      code: 200,
+      message: '查询成功',
+      data: stats
     });
   } catch (error) {
     console.error('获取统计信息失败:', error);
@@ -873,6 +575,82 @@ app.post('/api/notify/refresh', (req, res) => {
     res.json({
       code: 500,
       message: '发送刷新通知失败'
+    });
+  }
+});
+
+// 优雅关闭接口
+app.post('/api/shutdown', async (req, res) => {
+  try {
+    console.log('收到优雅关闭请求...');
+
+    res.json({
+      code: 200,
+      message: '服务器正在优雅关闭...',
+      data: {
+        shutdownStarted: true
+      }
+    });
+
+    // 延迟执行关闭操作，确保响应已发送
+    setTimeout(async () => {
+      console.log('开始优雅关闭流程...');
+
+      // 1. 通知所有WebSocket客户端
+      console.log(`正在通知 ${wsClients.size} 个WebSocket客户端...`);
+      wsClients.forEach((ws, clientId) => {
+        if (ws.readyState === ws.OPEN) {
+          try {
+            ws.send(JSON.stringify({
+              type: 'server_shutdown',
+              message: '服务器正在关闭，请稍后重连',
+              timestamp: Date.now()
+            }));
+          } catch (error) {
+            console.error(`通知客户端 ${clientId} 失败:`, error);
+          }
+        }
+      });
+
+      // 2. 关闭所有WebSocket连接
+      wsClients.forEach((ws, clientId) => {
+        try {
+          ws.close();
+        } catch (error) {
+          console.error(`关闭客户端 ${clientId} 连接失败:`, error);
+        }
+      });
+      wsClients.clear();
+      console.log('所有WebSocket连接已关闭');
+
+      // 3. 关闭数据库连接池
+      if (config.database.type === 'mysql' && db) {
+        try {
+          await db.closePool();
+          console.log('数据库连接池已关闭');
+        } catch (error) {
+          console.error('关闭数据库连接池失败:', error);
+        }
+      }
+
+      // 4. 关闭HTTP服务器
+      server.close(() => {
+        console.log('HTTP服务器已关闭');
+        console.log('优雅关闭完成');
+        process.exit(0);
+      });
+
+      // 5秒后强制退出
+      setTimeout(() => {
+        console.log('等待超时，强制退出');
+        process.exit(1);
+      }, 5000);
+    }, 100);
+  } catch (error) {
+    console.error('优雅关闭失败:', error);
+    res.json({
+      code: 500,
+      message: '优雅关闭失败'
     });
   }
 });
@@ -958,13 +736,69 @@ wss.on('connection', (ws, request) => {
   });
 });
 
-server.listen(PORT, () => {
+// ==================== 启动服务器 ====================
+
+// 初始化数据库
+async function initServer() {
   console.log('='.repeat(50));
-  console.log(`医院租床后端服务器已启动`);
-  console.log(`HTTP地址: http://localhost:${PORT}`);
-  console.log(`WebSocket地址: ws://localhost:${PORT}/ws`);
-  console.log(`API文档: http://localhost:${PORT}/api/health`);
+  console.log('正在初始化服务器...');
+
+  // 根据配置选择数据库类型
+  if (config.database.type === 'mysql') {
+    try {
+      console.log('正在连接 MySQL 数据库...');
+      db = require('./database/mysql');
+      orderDao = require('./database/orderDao');
+
+      // 测试数据库连接
+      const connected = await db.testConnection();
+      if (connected) {
+        // 初始化数据库表
+        await db.initDatabase();
+        console.log('✅ MySQL 数据库连接成功');
+
+        // 迁移内存中的订单数据到数据库（如果有）
+        if (orders.size > 0) {
+          console.log(`检测到内存中有 ${orders.size} 条订单数据，正在迁移...`);
+          const memoryOrders = Array.from(orders.values());
+          const migratedCount = await orderDao.migrateOrdersFromMemory(memoryOrders);
+          console.log(`✅ 订单数据迁移完成: ${migratedCount} 条`);
+          // 迁移完成后清空内存
+          orders.clear();
+        }
+
+        // 使用数据库模式
+        console.log('✅ 已切换到 MySQL 数据库模式');
+      } else {
+        console.log('⚠️  MySQL 连接失败，使用内存存储模式');
+        console.log('⚠️  请检查 MySQL 配置和服务状态');
+      }
+    } catch (error) {
+      console.error('❌ 数据库初始化失败:', error.message);
+      console.log('⚠️  使用内存存储模式');
+    }
+  } else {
+    console.log('使用内存存储模式');
+  }
+
   console.log('='.repeat(50));
+
+  // 启动HTTP服务器
+  server.listen(PORT, () => {
+    console.log('='.repeat(50));
+    console.log(`医院租床后端服务器已启动`);
+    console.log(`HTTP地址: http://localhost:${PORT}`);
+    console.log(`WebSocket地址: ws://localhost:${PORT}/ws`);
+    console.log(`API文档: http://localhost:${PORT}/api/health`);
+    console.log(`数据库模式: ${config.database.type}`);
+    console.log('='.repeat(50));
+  });
+}
+
+// 启动服务器
+initServer().catch(error => {
+  console.error('服务器启动失败:', error);
+  process.exit(1);
 });
 
 module.exports = { app, server, broadcastToClients };

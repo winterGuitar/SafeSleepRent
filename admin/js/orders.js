@@ -1,5 +1,8 @@
 // 订单数据
 let allOrders = [];
+let currentPage = 1;
+let pageSize = 10;
+let filteredOrders = [];
 
 // 加载订单列表
 async function loadOrders() {
@@ -7,7 +10,9 @@ async function loadOrders() {
     const response = await getOrders();
     if (response.code === 200) {
       allOrders = response.data || [];
-      renderOrders(allOrders);
+      filteredOrders = [...allOrders];
+      currentPage = 1;
+      renderOrders();
     }
   } catch (error) {
     console.error('加载订单失败:', error);
@@ -16,15 +21,21 @@ async function loadOrders() {
 }
 
 // 渲染订单列表
-function renderOrders(orders) {
+function renderOrders() {
   const tbody = document.getElementById('orders-tbody');
-  
-  if (orders.length === 0) {
+
+  // 计算分页数据
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const pageOrders = filteredOrders.slice(startIndex, endIndex);
+
+  if (pageOrders.length === 0) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #999;">暂无订单</td></tr>';
+    renderPagination();
     return;
   }
 
-  tbody.innerHTML = orders.map(order => `
+  tbody.innerHTML = pageOrders.map(order => `
     <tr>
       <td>${order.orderId}</td>
       <td>
@@ -48,34 +59,127 @@ function renderOrders(orders) {
       </td>
     </tr>
   `).join('');
+
+  renderPagination();
+}
+
+// 渲染分页控件
+function renderPagination() {
+  const totalPages = Math.ceil(filteredOrders.length / pageSize);
+
+  if (totalPages <= 1) {
+    // 移除现有的分页控件
+    const existing = document.getElementById('pagination');
+    if (existing) {
+      existing.remove();
+    }
+    return;
+  }
+
+  // 查找或创建分页容器
+  let paginationContainer = document.getElementById('pagination');
+  if (!paginationContainer) {
+    const tableContainer = document.querySelector('.table-container');
+    paginationContainer = document.createElement('div');
+    paginationContainer.id = 'pagination';
+    paginationContainer.className = 'pagination';
+    tableContainer.appendChild(paginationContainer);
+  }
+
+  // 生成分页按钮
+  let paginationHTML = '<div class="pagination-info">';
+
+  // 上一页按钮
+  paginationHTML += `
+    <button class="btn btn-sm" ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1})">
+      上一页
+    </button>
+  `;
+
+  // 页码按钮
+  const startPage = Math.max(1, currentPage - 2);
+  const endPage = Math.min(totalPages, currentPage + 2);
+
+  if (startPage > 1) {
+    paginationHTML += `<button class="btn btn-sm" onclick="goToPage(1)">1</button>`;
+    if (startPage > 2) {
+      paginationHTML += `<span class="pagination-ellipsis">...</span>`;
+    }
+  }
+
+  for (let i = startPage; i <= endPage; i++) {
+    paginationHTML += `
+      <button class="btn btn-sm ${i === currentPage ? 'btn-primary' : ''}" onclick="goToPage(${i})">
+        ${i}
+      </button>
+    `;
+  }
+
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) {
+      paginationHTML += `<span class="pagination-ellipsis">...</span>`;
+    }
+    paginationHTML += `<button class="btn btn-sm" onclick="goToPage(${totalPages})">${totalPages}</button>`;
+  }
+
+  // 下一页按钮
+  paginationHTML += `
+    <button class="btn btn-sm" ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})">
+      下一页
+    </button>
+  `;
+
+  paginationHTML += `</div>`;
+
+  // 显示当前页信息
+  paginationHTML += `
+    <div class="pagination-summary">
+      第 ${currentPage} 页 / 共 ${totalPages} 页，
+      共 ${filteredOrders.length} 条记录
+    </div>
+  `;
+
+  paginationContainer.innerHTML = paginationHTML;
+}
+
+// 跳转到指定页
+function goToPage(page) {
+  const totalPages = Math.ceil(filteredOrders.length / pageSize);
+  if (page < 1 || page > totalPages) {
+    return;
+  }
+  currentPage = page;
+  renderOrders();
 }
 
 // 搜索订单
 function searchOrders() {
   const searchValue = document.getElementById('order-search').value.trim();
-  
+
   if (!searchValue) {
-    renderOrders(allOrders);
-    return;
+    filteredOrders = [...allOrders];
+  } else {
+    filteredOrders = allOrders.filter(order =>
+      order.orderId.toLowerCase().includes(searchValue.toLowerCase())
+    );
   }
 
-  const filteredOrders = allOrders.filter(order =>
-    order.orderId.toLowerCase().includes(searchValue.toLowerCase())
-  );
-  
-  renderOrders(filteredOrders);
+  currentPage = 1;
+  renderOrders();
 }
 
 // 过滤订单
 function filterOrders() {
   const filterValue = document.getElementById('order-filter').value;
-  
+
   if (filterValue === 'all') {
-    renderOrders(allOrders);
+    filteredOrders = [...allOrders];
   } else {
-    const filteredOrders = allOrders.filter(order => order.status === filterValue);
-    renderOrders(filteredOrders);
+    filteredOrders = allOrders.filter(order => order.status === filterValue);
   }
+
+  currentPage = 1;
+  renderOrders();
 }
 
 // 查看订单详情

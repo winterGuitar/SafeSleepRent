@@ -2,11 +2,14 @@
 <view class="container">
   <!-- 折叠床类型列表 -->
   <view class="bed-list">
-    <view class="bed-item" wx:for="{{bedList}}" wx:key="id">
+    <view class="bed-item {{!item.available ? 'unavailable' : ''}}" wx:for="{{bedList}}" wx:key="id">
       <view class="bed-info">
-        <image class="bed-image" src="{{item.image || '/images/bed-placeholder.png'}}" mode="aspectFill" binderror="onImageError"></image>
+        <image class="bed-image {{!item.available ? 'disabled' : ''}}" src="{{item.imageUrl || 'https://via.placeholder.com/160x160?text=Bed'}}" mode="aspectFill" binderror="onImageError"></image>
         <view class="bed-details">
-          <view class="bed-name">{{item.name}}</view>
+          <view class="bed-name">
+            {{item.name}}
+            <text wx:if="{{!item.available}}" class="unavailable-tag">暂不可用</text>
+          </view>
           <view class="bed-desc">{{item.description}}</view>
           <view class="bed-info-row">
             <view class="bed-price">
@@ -17,9 +20,9 @@
             <!-- 数量选择 -->
             <view class="quantity-wrapper">
               <view class="quantity-control">
-                <view class="qty-btn qty-minus {{item.quantity === 0 ? 'disabled' : ''}}" bindtap="decreaseQuantity" data-index="{{index}}">-</view>
+                <view class="qty-btn qty-minus {{item.quantity === 0 || !item.available ? 'disabled' : ''}}" bindtap="decreaseQuantity" data-index="{{index}}">-</view>
                 <view class="qty-value">{{item.quantity}}</view>
-                <view class="qty-btn qty-plus {{item.quantity >= item.stock ? 'disabled' : ''}}" bindtap="increaseQuantity" data-index="{{index}}">+</view>
+                <view class="qty-btn qty-plus {{item.quantity >= item.stock || !item.available ? 'disabled' : ''}}" bindtap="increaseQuantity" data-index="{{index}}">+</view>
               </view>
               <view class="stock-info">库存: {{item.stock}}</view>
             </view>
@@ -32,7 +35,7 @@
 
       <!-- 支付按钮 -->
       <view class="item-pay-area">
-        <button class="item-pay-btn {{item.quantity === 0 ? 'disabled' : ''}}" bindtap="payItem" data-index="{{index}}" disabled="{{item.quantity === 0}}">
+        <button class="item-pay-btn {{item.quantity === 0 || !item.available ? 'disabled' : ''}}" bindtap="payItem" data-index="{{index}}" disabled="{{item.quantity === 0 || !item.available}}">
           <text class="pay-icon">💳</text>
           支付
         </button>

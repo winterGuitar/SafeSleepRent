@@ -61,6 +61,25 @@
   box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.08);
 }
 
+.bed-item.unavailable {
+  opacity: 0.6;
+}
+
+.bed-image.disabled {
+  filter: grayscale(100%);
+}
+
+.unavailable-tag {
+  display: inline-block;
+  background: #ff4d4f;
+  color: #fff;
+  font-size: 20rpx;
+  padding: 2rpx 8rpx;
+  border-radius: 4rpx;
+  margin-left: 12rpx;
+  font-weight: normal;
+}
+
 .bed-info {
   display: flex;
 }
