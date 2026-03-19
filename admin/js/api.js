@@ -130,7 +130,9 @@ function connectWebSocket() {
     const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
     const protocol = isLocal ? 'ws:' : 'wss:';
     const port = isLocal ? ':3000' : '';
-    const wsUrl = `${protocol}//${location.hostname}${port}/ws?client=admin&openid=admin_frontend`;
+    // 为每个浏览器会话生成唯一ID，允许多个管理员同时登录
+    const uniqueSessionId = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const wsUrl = `${protocol}//${location.hostname}${port}/ws?client=admin&openid=${uniqueSessionId}`;
 
     ws = new WebSocket(wsUrl);
 
