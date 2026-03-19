@@ -38,6 +38,21 @@ module.exports = {
   },
 
   // 小程序配置
+  wechat: {
+    // 小程序AppID（请替换为你的AppID）
+    appId: process.env.WECHAT_APP_ID || 'your_app_id',
+    // 小程序AppSecret（请替换为你的AppSecret）
+    appSecret: process.env.WECHAT_APP_SECRET || 'your_app_secret',
+    // 获取openid的接口
+    loginUrl: 'https://api.weixin.qq.com/sns/jscode2session',
+    // access_token有效期（秒）
+    tokenExpire: 7200
+  },
+
+  // 运行环境
+  env: process.env.NODE_ENV || 'development',
+
+  // 保留旧配置以兼容
   miniprogram: {
     // 获取openid的接口
     loginUrl: 'https://api.weixin.qq.com/sns/jscode2session',

@@ -11,8 +11,8 @@ const ENV = {
   PROD: 'production'
 }
 
-// 当前环境（发布时需改为 ENV.PROD）
-const currentEnv = ENV.PROD
+// 当前环境（开发时改为 ENV.DEV，发布时改为 ENV.PROD）
+const currentEnv = ENV.DEV
 
 // API 基础配置
 const apiConfig = {

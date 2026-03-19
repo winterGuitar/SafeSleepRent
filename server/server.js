@@ -6,6 +6,10 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+
+// 加载环境变量
+require('dotenv').config();
+
 const config = require('./config/appConfig');
 
 const app = express();
@@ -140,10 +144,65 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// ==================== 认证相关接口 ====================
+
+// 小程序登录接口（获取openid）
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    if (!code) {
+      return res.json({
+        code: 400,
+        message: '缺少code参数'
+      });
+    }
+
+    // 获取小程序配置
+    const { appId, appSecret } = config.wechat;
+
+    // 调用微信API获取openid
+    const wxApiUrl = `https://api.weixin.qq.com/sns/jscode2session?appid=${appId}&secret=${appSecret}&js_code=${code}&grant_type=authorization_code`;
+
+    const wxResponse = await fetch(wxApiUrl);
+    const wxData = await wxResponse.json();
+
+    if (wxData.errcode) {
+      return res.json({
+        code: 500,
+        message: '微信登录失败: ' + wxData.errmsg,
+        data: wxData
+      });
+    }
+
+    res.json({
+      code: 200,
+      message: '登录成功',
+      data: {
+        openid: wxData.openid,
+        session_key: wxData.session_key
+      }
+    });
+  } catch (error) {
+    console.error('登录失败:', error);
+    res.json({
+      code: 500,
+      message: '服务器错误',
+      error: error.message
+    });
+  }
+});
+
 // ==================== 床位类型相关接口 ====================
 
 // 获取所有床位类型
 app.get('/api/bedTypes', bedTypeRoutes.getBedTypes);
+
+// 获取可用的床位类型（必须在 /:id 之前）
+app.get('/api/bedTypes/available', bedTypeRoutes.getAvailableBedTypes);
+
+// 获取床位库存信息（必须在 /:id 之前）
+app.get('/api/bedTypes/inventory', bedTypeRoutes.getBedInventory);
 
 // 根据ID获取床位类型
 app.get('/api/bedTypes/:id', bedTypeRoutes.getBedTypeById);
@@ -165,12 +224,6 @@ app.delete('/api/bedTypes/:id', (req, res) => {
   req.broadcastToClients = broadcastToClients;
   bedTypeRoutes.deleteBedType(req, res);
 });
-
-// 获取可用的床位类型
-app.get('/api/bedTypes/available', bedTypeRoutes.getAvailableBedTypes);
-
-// 获取床位库存信息
-app.get('/api/bedTypes/inventory', bedTypeRoutes.getBedInventory);
 
 // 上传床位图片
 app.post('/api/upload/bedImage', upload.single('image'), (req, res) => {

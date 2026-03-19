@@ -8,24 +8,23 @@ const path = require('path');
 function buildImageUrl(imagePath, req) {
   if (!imagePath) return null;
 
-  // 如果已经是完整URL，返回相对路径
+  // 如果已经是完整URL，直接返回
   if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-    // 从完整URL中提取路径部分
-    try {
-      const url = new URL(imagePath);
-      return url.pathname;
-    } catch {
-      return imagePath;
-    }
-  }
-
-  // 直接返回相对路径
-  if (imagePath.startsWith('/')) {
     return imagePath;
   }
 
-  // 处理相对路径
-  return `/public/images/${imagePath}`;
+  // 如果是相对路径，构建完整URL
+  let relativePath = imagePath;
+  if (!imagePath.startsWith('/')) {
+    relativePath = `/public/images/${imagePath}`;
+  }
+
+  // 获取协议和主机
+  const protocol = req.secure ? 'https:' : 'http:';
+  const host = req.get('host');
+
+  // 返回完整的URL
+  return `${protocol}//${host}${relativePath}`;
 }
 
 let bedTypesData = null;

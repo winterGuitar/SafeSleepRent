@@ -22,10 +22,16 @@ Page({
     this.loadOrders()
   },
 
-  // 连接WebSocket
+  // 连接WebSocket - 使用全局连接，避免重复
   connectWebSocket: function() {
-    const openid = app.globalData.openid || 'anonymous'
-    const socketUrl = `${config.getWsUrl()}?openid=${openid}`
+    // 使用全局的WebSocket连接，避免重复连接
+    if (app.globalData.socketTask && app.globalData.socketTask.readyState === 1) {
+      console.log('订单页: 使用全局WebSocket连接')
+      return
+    }
+
+    // 触发全局连接
+    app.connectWebSocket()
 
     const socketTask = wx.connectSocket({
       url: socketUrl,

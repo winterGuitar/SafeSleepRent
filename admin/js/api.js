@@ -1,7 +1,21 @@
-// API基础配置 - 根据环境自动切换
-const API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-  ? 'http://localhost:3000/api'  // 本地开发环境
-  : '/api';  // 生产环境（使用 Nginx 代理）
+// API基础配置 - 自动判断环境（支持localhost、局域网IP、生产环境）
+const API_BASE = (function() {
+  const hostname = location.hostname;
+
+  // 本地开发环境
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost:3000/api';
+  }
+
+  // 局域网IP访问 (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+  if (/^(192\.168|10\.|172\.(1[6-9]|2[0-9]|3[01]))/.test(hostname)) {
+    // 局域网环境，直接访问3000端口
+    return `http://${hostname}:3000/api`;
+  }
+
+  // 生产环境（使用反向代理）
+  return '/api';
+})();
 
 // 封装请求方法
 async function apiRequest(url, options = {}) {
@@ -139,12 +153,27 @@ function connectWebSocket() {
       return;
     }
 
-    const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-    const protocol = isLocal ? 'ws:' : 'wss:';
-    const port = isLocal ? ':3000' : '';
+    const hostname = location.hostname;
+
+    // 判断环境和协议
+    let protocol, port;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      // 本地开发环境
+      protocol = 'ws:';
+      port = ':3000';
+    } else if (/^(192\.168|10\.|172\.(1[6-9]|2[0-9]|3[01]))/.test(hostname)) {
+      // 局域网IP访问
+      protocol = 'ws:';
+      port = ':3000';
+    } else {
+      // 生产环境
+      protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      port = '';
+    }
+
     // 为每个浏览器会话生成唯一ID，允许多个管理员同时登录
     const uniqueSessionId = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const wsUrl = `${protocol}//${location.hostname}${port}/ws?client=admin&openid=${uniqueSessionId}`;
+    const wsUrl = `${protocol}//${hostname}${port}/ws?client=admin&openid=${uniqueSessionId}`;
 
     console.log('正在连接WebSocket:', wsUrl);
     ws = new WebSocket(wsUrl);
