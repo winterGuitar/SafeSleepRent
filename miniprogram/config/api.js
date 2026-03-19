@@ -12,7 +12,7 @@ const ENV = {
 }
 
 // 当前环境（发布时需改为 ENV.PROD）
-const currentEnv = ENV.DEV
+const currentEnv = ENV.PROD
 
 // API 基础配置
 const apiConfig = {
@@ -25,8 +25,8 @@ const apiConfig = {
   [ENV.PROD]: {
     // 生产环境：实际部署的域名
     // 注意：必须在小程序后台配置服务器域名
-    baseURL: 'https://yourdomain.com',  // 替换为实际域名
-    wsURL: 'wss://yourdomain.com/ws',   // 替换为实际域名
+    baseURL: 'https://www.axxzc.cn',
+    wsURL: 'wss://www.axxzc.cn/ws',
     // 注意：
     // 1. 域名必须通过 ICP 备案
     // 2. 必须配置 HTTPS 证书（TLS 1.2+）

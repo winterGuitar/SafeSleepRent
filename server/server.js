@@ -784,7 +784,7 @@ async function initServer() {
   console.log('='.repeat(50));
 
   // 启动HTTP服务器
-  server.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
     console.log('='.repeat(50));
     console.log(`医院租床后端服务器已启动`);
     console.log(`HTTP地址: http://localhost:${PORT}`);

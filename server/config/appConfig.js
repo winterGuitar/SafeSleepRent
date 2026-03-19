@@ -7,7 +7,7 @@ module.exports = {
     port: 3000,
     host: 'localhost',
     // 生产环境需要修改为实际域名
-    domain: process.env.NODE_ENV === 'production' ? 'your-domain.com' : 'localhost:3000',
+    domain: process.env.NODE_ENV === 'production' ? 'www.axxzc.cn' : 'localhost:3000',
     // 是否启用HTTPS
     https: process.env.NODE_ENV === 'production'
   },
@@ -19,7 +19,7 @@ module.exports = {
       host: 'localhost',
       port: 3306,
       database: 'hosp_bed',
-      username: 'root',
+      username: 'beduser',
       password: '123456', // 请修改为你的MySQL密码
       connectionLimit: 10
     },
