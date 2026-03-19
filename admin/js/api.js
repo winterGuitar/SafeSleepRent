@@ -127,6 +127,18 @@ let wsHeartbeatTimer = null;
  */
 function connectWebSocket() {
   try {
+    // 如果已有连接且状态正常，不要重复连接
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      console.log('WebSocket已连接，跳过重复连接');
+      return;
+    }
+
+    // 如果正在连接，等待连接完成
+    if (ws && ws.readyState === WebSocket.CONNECTING) {
+      console.log('WebSocket正在连接中，跳过');
+      return;
+    }
+
     const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
     const protocol = isLocal ? 'ws:' : 'wss:';
     const port = isLocal ? ':3000' : '';
@@ -134,6 +146,7 @@ function connectWebSocket() {
     const uniqueSessionId = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const wsUrl = `${protocol}//${location.hostname}${port}/ws?client=admin&openid=${uniqueSessionId}`;
 
+    console.log('正在连接WebSocket:', wsUrl);
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
