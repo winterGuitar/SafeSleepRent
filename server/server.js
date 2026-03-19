@@ -20,6 +20,8 @@ const PORT = config.server.port;
 const wsClients = new Map();
 
 // 中间件
+// 信任反向代理（Nginx），确保能正确识别 HTTPS
+app.set('trust proxy', true);
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));

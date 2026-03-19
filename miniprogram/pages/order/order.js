@@ -5,8 +5,7 @@ Page({
   data: {
     orders: [],
     currentTab: 'completed',  // 当前标签: completed, unpaid, cancelled
-    filteredOrders: [],  // 过滤后的订单列表
-    socketTask: null
+    filteredOrders: []  // 过滤后的订单列表
   },
 
   onLoad: function (options) {
@@ -15,131 +14,44 @@ Page({
   },
 
   onUnload: function() {
-    this.closeWebSocket()
+    // 订单页卸载时不关闭全局 WebSocket，由 app.js 统一管理
   },
 
   onShow: function () {
     this.loadOrders()
   },
 
+  // 接收全局 WebSocket 消息
+  onSocketMessage: function(message) {
+    console.log('订单页收到全局消息:', message)
+
+    // 根据消息类型处理
+    switch(message.type) {
+      case 'order_paid':
+        this.handleOrderPaid(message)
+        break
+      case 'order_refunded':
+        this.handleOrderRefunded(message)
+        break
+      case 'order_cancelled':
+        this.handleOrderCancelled(message)
+        break
+      case 'data_update':
+        this.handleDataUpdate(message)
+        break
+    }
+  },
+
   // 连接WebSocket - 使用全局连接，避免重复
   connectWebSocket: function() {
-    // 使用全局的WebSocket连接，避免重复连接
-    if (app.globalData.socketTask && app.globalData.socketTask.readyState === 1) {
-      console.log('订单页: 使用全局WebSocket连接')
-      return
-    }
-
-    // 触发全局连接
+    // 只触发全局连接，不创建新连接
+    console.log('订单页: 触发全局WebSocket连接')
     app.connectWebSocket()
-
-    const socketTask = wx.connectSocket({
-      url: socketUrl,
-      success: () => {
-        console.log('订单页WebSocket连接成功')
-      }
-    })
-
-    socketTask.onOpen(() => {
-      console.log('订单页WebSocket连接已打开')
-    })
-
-    socketTask.onMessage((res) => {
-      try {
-        const message = JSON.parse(res.data)
-        console.log('订单页收到服务器消息:', message)
-
-        // 根据消息类型处理
-        switch(message.type) {
-          case 'order_paid':
-            this.handleOrderPaid(message)
-            break
-          case 'order_refunded':
-            this.handleOrderRefunded(message)
-            break
-          case 'order_cancelled':
-            this.handleOrderCancelled(message)
-            break
-          case 'data_update':
-            this.handleDataUpdate(message)
-            break
-        }
-      } catch (error) {
-        console.error('解析消息失败:', error)
-      }
-    })
-
-    socketTask.onError((error) => {
-      console.error('订单页WebSocket错误:', error)
-    })
-
-    socketTask.onClose(() => {
-      console.log('订单页WebSocket连接已关闭')
-    })
-
-    this.setData({ socketTask })
-
-    // 心跳保活
-    this.heartbeatInterval = setInterval(() => {
-      if (socketTask.readyState === 1) {
-        socketTask.send({
-          data: JSON.stringify({ type: 'ping' })
-        })
-      }
-    }, 30000)
   },
 
-  // 关闭WebSocket
+  // 关闭WebSocket - 订单页不关闭，由全局管理
   closeWebSocket: function() {
-    if (this.data.socketTask) {
-      this.data.socketTask.close()
-    }
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval)
-    }
-  },
-
-  // 处理订单支付成功
-  handleOrderPaid: function(message) {
-    console.log('收到订单支付成功消息:', message)
-    wx.showToast({
-      title: '订单支付成功',
-      icon: 'success'
-    })
-
-    // 重新加载订单列表
-    this.loadOrders()
-  },
-
-  // 处理订单退款成功
-  handleOrderRefunded: function(message) {
-    console.log('收到订单退款成功消息:', message)
-    wx.showToast({
-      title: '订单已退款',
-      icon: 'success'
-    })
-
-    // 重新加载订单列表
-    this.loadOrders()
-  },
-
-  // 处理订单取消成功
-  handleOrderCancelled: function(message) {
-    console.log('收到订单取消消息:', message)
-    wx.showToast({
-      title: '订单已取消',
-      icon: 'success'
-    })
-
-    // 重新加载订单列表
-    this.loadOrders()
-  },
-
-  // 处理数据更新
-  handleDataUpdate: function(message) {
-    console.log('收到数据更新消息:', message)
-    // 重新加载订单列表
-    this.loadOrders()
+    console.log('订单页: 不关闭全局WebSocket，由app.js统一管理')
   },
 
   loadOrders: function() {

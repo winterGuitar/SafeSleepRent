@@ -19,8 +19,11 @@ function buildImageUrl(imagePath, req) {
     relativePath = `/public/images/${imagePath}`;
   }
 
-  // 获取协议和主机
-  const protocol = req.secure ? 'https:' : 'http:';
+  // 获取协议（优先使用 X-Forwarded-Proto，其次使用 req.secure）
+  const protocol = req.get('x-forwarded-proto') === 'https'
+    ? 'https:'
+    : (req.secure ? 'https:' : 'http:');
+
   const host = req.get('host');
 
   // 返回完整的URL
