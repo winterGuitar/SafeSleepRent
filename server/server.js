@@ -31,7 +31,8 @@ function getServerBaseUrl(req) {
 }
 
 // 图片上传配置
-const uploadDir = path.join(__dirname, 'public', 'images');
+// 根据环境变量选择不同的上传目录
+const uploadDir = process.env.IMAGE_UPLOAD_DIR || path.join(__dirname, 'public', 'images');
 
 // 确保上传目录存在
 if (!fs.existsSync(uploadDir)) {
