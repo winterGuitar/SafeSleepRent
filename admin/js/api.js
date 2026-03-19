@@ -1,5 +1,7 @@
-// API基础配置
-const API_BASE = 'http://localhost:3000/api';
+// API基础配置 - 根据环境自动切换
+const API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? 'http://localhost:3000/api'  // 本地开发环境
+  : '/api';  // 生产环境（使用 Nginx 代理）
 
 // 封装请求方法
 async function apiRequest(url, options = {}) {
@@ -125,7 +127,10 @@ let wsHeartbeatTimer = null;
  */
 function connectWebSocket() {
   try {
-    const wsUrl = `ws://${location.hostname}:3000/ws?client=admin&openid=admin_frontend`;
+    const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    const protocol = isLocal ? 'ws:' : 'wss:';
+    const port = isLocal ? ':3000' : '';
+    const wsUrl = `${protocol}//${location.hostname}${port}/ws?client=admin&openid=admin_frontend`;
 
     ws = new WebSocket(wsUrl);
 
