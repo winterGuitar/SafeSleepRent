@@ -149,7 +149,28 @@ function connectWebSocket() {
 
     // 如果正在连接，等待连接完成
     if (ws && ws.readyState === WebSocket.CONNECTING) {
-      console.log('WebSocket正在连接中，跳过');
+      console.log('WebSocket正在连接中，等待完成');
+      // 等待连接完成，最多等待3秒
+      const maxWaitTime = 3000;
+      const startTime = Date.now();
+      
+      const waitForConnection = () => {
+        if (ws.readyState === WebSocket.OPEN) {
+          console.log('WebSocket连接已完成');
+          return;
+        } else if (ws.readyState === WebSocket.CONNECTING && Date.now() - startTime < maxWaitTime) {
+          setTimeout(waitForConnection, 100);
+        } else {
+          console.log('WebSocket连接超时，重新连接');
+          // 清除旧连接，重新连接
+          if (ws) {
+            ws.close();
+            ws = null;
+          }
+        }
+      };
+      
+      waitForConnection();
       return;
     }
 
@@ -220,28 +241,31 @@ function connectWebSocket() {
       // 清理旧连接
       ws = null;
       
-      // 指数退避重连，避免频繁重连
-      const maxRetries = 5;
-      let retryCount = 0;
-      const baseDelay = 5000; // 5秒
-      
-      function scheduleReconnect() {
-        if (retryCount >= maxRetries) {
-          console.log('WebSocket重连次数达到上限，停止重连');
-          return;
+      // 如果不是正常关闭（code 1000），进行重连
+      if (event.code !== 1000) {
+        // 指数退避重连，避免频繁重连
+        const maxRetries = 3; // 减少重试次数
+        let retryCount = 0;
+        const baseDelay = 3000; // 3秒，减少基础延迟
+        
+        function scheduleReconnect() {
+          if (retryCount >= maxRetries) {
+            console.log('WebSocket重连次数达到上限，停止重连');
+            return;
+          }
+          
+          const delay = baseDelay * Math.pow(1.5, retryCount); // 3s, 4.5s, 6.75s
+          console.log(`WebSocket将在 ${delay/1000} 秒后尝试重连 (${retryCount + 1}/${maxRetries})`);
+          
+          wsReconnectTimer = setTimeout(() => {
+            retryCount++;
+            console.log('尝试重新连接WebSocket...');
+            connectWebSocket();
+          }, delay);
         }
         
-        const delay = baseDelay * Math.pow(2, retryCount); // 5s, 10s, 20s, 40s, 80s
-        console.log(`WebSocket将在 ${delay/1000} 秒后尝试重连 (${retryCount + 1}/${maxRetries})`);
-        
-        wsReconnectTimer = setTimeout(() => {
-          retryCount++;
-          console.log('尝试重新连接WebSocket...');
-          connectWebSocket();
-        }, delay);
+        scheduleReconnect();
       }
-      
-      scheduleReconnect();
     };
 
   } catch (error) {

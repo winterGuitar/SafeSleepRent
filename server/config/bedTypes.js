@@ -7,9 +7,9 @@ module.exports = {
       "description": "医用级铝合金折叠床，承重200kg，可调节角度",
       "price": 30,
       "deposit": 300,
-      "image": "/public/images/bed-1773493598958-259384733.png",
-      "stock": 0,
-      "available": false,
+      "image": "http://localhost:3000/public/images/bed-1773493598958-259384733.png",
+      "stock": 19,
+      "available": true,
       "features": [
         "铝合金材质",
         "承重200kg",
