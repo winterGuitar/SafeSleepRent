@@ -159,14 +159,14 @@ App({
       this.globalData.socketConnected = false
       this.globalData.isConnecting = false
 
-      // 如果不是正在重连，5秒后尝试重连
-      if (!this.globalData.reconnectTimer) {
-        this.globalData.reconnectTimer = setTimeout(() => {
-          console.log('App: 尝试重新连接WebSocket...')
-          this.globalData.reconnectTimer = null
-          this.connectWebSocket()
-        }, 5000)
-      }
+    // 如果不是正在重连，10秒后尝试重连，避免过于频繁
+    if (!this.globalData.reconnectTimer) {
+      this.globalData.reconnectTimer = setTimeout(() => {
+        console.log('App: 尝试重新连接WebSocket...')
+        this.globalData.reconnectTimer = null
+        this.connectWebSocket()
+      }, 10000)
+    }
     })
 
     this.globalData.socketTask = socketTask

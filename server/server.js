@@ -775,10 +775,11 @@ wss.on('connection', (ws, request) => {
   });
 
   // 连接关闭
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
     wsClients.delete(clientId);
     console.log(`=== WebSocket连接关闭 ===`);
     console.log(`客户端 ${clientId} 已断开`);
+    console.log(`关闭码: ${code}, 原因: ${reason || '无'}`);
     console.log(`剩余连接数: ${wsClients.size}`);
     console.log(`剩余客户端列表: ${Array.from(wsClients.keys()).join(', ')}`);
   });
