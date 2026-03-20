@@ -192,8 +192,12 @@ function connectWebSocket() {
       port = '';
     }
 
-    // 为每个浏览器会话生成唯一ID，允许多个管理员同时登录
-    const uniqueSessionId = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // 使用本地存储的会话ID，避免每次刷新都创建新连接
+    let uniqueSessionId = localStorage.getItem('admin_ws_session_id');
+    if (!uniqueSessionId) {
+      uniqueSessionId = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem('admin_ws_session_id', uniqueSessionId);
+    }
     const wsUrl = `${protocol}//${hostname}${port}/ws?client=admin&openid=${uniqueSessionId}`;
 
     console.log('正在连接WebSocket:', wsUrl);
@@ -241,30 +245,28 @@ function connectWebSocket() {
       // 清理旧连接
       ws = null;
       
-      // 如果不是正常关闭（code 1000），进行重连
-      if (event.code !== 1000) {
-        // 指数退避重连，避免频繁重连
-        const maxRetries = 3; // 减少重试次数
-        let retryCount = 0;
-        const baseDelay = 3000; // 3秒，减少基础延迟
+      // 如果不是正常关闭（code 1000）且不是服务器主动断开（code 1001），进行重连
+      if (event.code !== 1000 && event.code !== 1001) {
+        // 检查是否已经达到最大重连次数
+        let retryCount = parseInt(localStorage.getItem('admin_ws_retry_count') || '0');
+        const maxRetries = 2; // 进一步减少重试次数
         
-        function scheduleReconnect() {
-          if (retryCount >= maxRetries) {
-            console.log('WebSocket重连次数达到上限，停止重连');
-            return;
-          }
+        if (retryCount < maxRetries) {
+          const baseDelay = 5000; // 5秒基础延迟
+          const delay = baseDelay * Math.pow(2, retryCount); // 5s, 10s
           
-          const delay = baseDelay * Math.pow(1.5, retryCount); // 3s, 4.5s, 6.75s
           console.log(`WebSocket将在 ${delay/1000} 秒后尝试重连 (${retryCount + 1}/${maxRetries})`);
           
           wsReconnectTimer = setTimeout(() => {
             retryCount++;
+            localStorage.setItem('admin_ws_retry_count', retryCount.toString());
             console.log('尝试重新连接WebSocket...');
             connectWebSocket();
           }, delay);
+        } else {
+          console.log('WebSocket重连次数达到上限，停止重连');
+          localStorage.removeItem('admin_ws_retry_count');
         }
-        
-        scheduleReconnect();
       }
     };
 
