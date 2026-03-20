@@ -171,18 +171,30 @@ App({
 
     this.globalData.socketTask = socketTask
 
-    // 心跳保活
+    // 心跳保活（延迟启动，避免连接不稳定时立即发送心跳）
     if (this.globalData.heartbeatInterval) {
       clearInterval(this.globalData.heartbeatInterval)
     }
-    this.globalData.heartbeatInterval = setInterval(() => {
-      if (this.globalData.socketTask && this.globalData.socketTask.readyState === 1) {
-        console.log('App: 发送心跳')
-        this.globalData.socketTask.send({
-          data: JSON.stringify({ type: 'ping' })
-        })
-      }
-    }, 30000)
+    // 延迟10秒后开始发送心跳，确保连接稳定
+    setTimeout(() => {
+      this.globalData.heartbeatInterval = setInterval(() => {
+        if (this.globalData.socketTask && this.globalData.socketTask.readyState === 1) {
+          console.log('App: 发送心跳')
+          try {
+            this.globalData.socketTask.send({
+              data: JSON.stringify({ type: 'ping' })
+            })
+          } catch (error) {
+            console.error('App: 发送心跳失败:', error)
+            // 如果发送心跳失败，可能是连接已断开，清除定时器
+            if (this.globalData.heartbeatInterval) {
+              clearInterval(this.globalData.heartbeatInterval)
+              this.globalData.heartbeatInterval = null
+            }
+          }
+        }
+      }, 30000)
+    }, 10000)
   },
 
   // 关闭 WebSocket
