@@ -198,7 +198,7 @@ function connectWebSocket() {
       uniqueSessionId = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       localStorage.setItem('admin_ws_session_id', uniqueSessionId);
     }
-    const wsUrl = `${protocol}//${hostname}${port}/ws?client=admin&openid=${uniqueSessionId}`;
+    const wsUrl = `${protocol}//${hostname}${port}/ws/admin?client=admin&openid=${uniqueSessionId}`;
 
     console.log('正在连接WebSocket:', wsUrl);
     ws = new WebSocket(wsUrl);

@@ -11,8 +11,8 @@ Page({
   onLoad: function (options) {
     console.log('Page onLoad')
 
-    // 添加网络测试
-    // this.testNetworkConnection()
+    // 测试获取床位列表
+    this.testNetworkConnection()
 
     this.checkLogin()
     this.loadBedTypes()
@@ -420,81 +420,39 @@ Page({
     }
   },
 
-  // 网络连接测试函数
+  // 网络连接测试函数 - 测试获取床位列表
   testNetworkConnection: function() {
-    console.log('========== 网络连接测试开始 ==========')
+    console.log('========== 获取床位列表测试开始 ==========')
     console.log('当前环境:', config.currentEnv)
     console.log('API配置:', config.getConfig())
 
-    const testUrls = [
-      { name: '本地开发服务器', url: 'http://localhost:3000/api/health' },
-      { name: '你的生产服务器', url: 'https://www.axxzc.cn/api/health' },
-      { name: '微信测试接口', url: 'https://api.weixin.qq.com/cgi-bin/token' }
-    ]
+    const bedTypesUrl = config.getApiUrl(config.apiPaths.bedTypes)
+    console.log('测试URL:', bedTypesUrl)
 
-    testUrls.forEach((test, index) => {
-      console.log(`测试 ${index + 1}: ${test.name}`)
-      console.log(`URL: ${test.url}`)
-
-      wx.request({
-        url: test.url,
-        method: 'GET',
-        timeout: 5000,
-        success: (res) => {
-          console.log(`✅ ${test.name} 测试成功`)
-          console.log(`   状态码: ${res.statusCode}`)
-          console.log(`   响应数据:`, res.data)
-        },
-        fail: (err) => {
-          console.log(`❌ ${test.name} 测试失败`)
-          console.log(`   错误信息:`, err)
+    wx.request({
+      url: bedTypesUrl,
+      method: 'GET',
+      timeout: 10000,
+      success: (res) => {
+        console.log('✅ 获取床位列表测试成功')
+        console.log('   状态码:', res.statusCode)
+        console.log('   响应数据:', res.data)
+        if (res.data.code === 200) {
+          console.log('   床位数量:', res.data.data.length)
+          console.log('   库存列表:', res.data.data.map(bed => ({
+            name: bed.name,
+            stock: bed.stock,
+            price: bed.price
+          })))
         }
-      })
+      },
+      fail: (err) => {
+        console.log('❌ 获取床位列表测试失败')
+        console.log('   错误信息:', err)
+        console.log('   错误详情:', err.errMsg)
+      }
     })
 
-    console.log('========== 网络连接测试结束 ==========')
-
-    // 测试WebSocket连接
-    this.testWebSocketConnection()
-  },
-
-  // WebSocket连接测试
-  testWebSocketConnection: function() {
-    console.log('========== WebSocket连接测试 ==========')
-
-    const wsUrls = [
-      { name: '本地开发WebSocket', url: 'ws://localhost:3000/ws' },
-      { name: '你的生产WebSocket', url: 'wss://www.axxzc.cn/ws' }
-    ]
-
-    wsUrls.forEach((test, index) => {
-      console.log(`测试WebSocket ${index + 1}: ${test.name}`)
-      console.log(`URL: ${test.url}`)
-
-      const socketTask = wx.connectSocket({
-        url: test.url,
-        success: () => {
-          console.log(`✅ ${test.name} 连接请求已发送`)
-        },
-        fail: (err) => {
-          console.log(`❌ ${test.name} 连接请求失败`, err)
-        }
-      })
-
-      socketTask.onOpen(() => {
-        console.log(`✅ ${test.name} 连接已建立`)
-        socketTask.close()
-      })
-
-      socketTask.onError((error) => {
-        console.log(`❌ ${test.name} 连接错误`, error)
-      })
-
-      socketTask.onClose(() => {
-        console.log(`ℹ️ ${test.name} 连接已关闭`)
-      })
-    })
-
-    console.log('========== WebSocket连接测试结束 ==========')
+    console.log('========== 获取床位列表测试结束 ==========')
   }
 })

@@ -29,11 +29,11 @@ const apiConfig = {
     // 生产环境：实际部署的域名
     // 注意：必须在小程序后台配置服务器域名
     baseURL: 'https://www.axxzc.cn',
-    wsURL: 'wss://www.axxzc.cn/ws',
+    wsURL: 'wss://www.axxzc.cn',
     // 注意：
     // 1. 域名必须通过 ICP 备案
     // 2. 必须配置 HTTPS 证书（TLS 1.2+）
-    // 3. 必须在小程序后台配置合法域名
+    // 3. 必须在小程序后台配置合法域名（socket 域名只需填写域名，不需要路径）
   }
 }
 

@@ -16,8 +16,9 @@ const app = express();
 const server = http.createServer(app);
 const PORT = config.server.port;
 
-// WebSocket连接存储
-const wsClients = new Map();
+// WebSocket连接存储 - 分离前端和小程序
+const wsAdminClients = new Map();  // 前端管理端客户端
+const wsMiniprogramClients = new Map();  // 小程序端客户端
 
 // 中间件
 // 信任反向代理（Nginx），确保能正确识别 HTTPS
@@ -25,6 +26,20 @@ app.set('trust proxy', true);
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// 添加请求日志中间件 - 用于调试HTTP请求问题
+app.use((req, res, next) => {
+  const timestamp = getTimestamp()
+  console.log(`[${timestamp}] ===== HTTP请求日志 =====`)
+  console.log(`[${timestamp}] 方法: ${req.method}`)
+  console.log(`[${timestamp}] 路径: ${req.path}`)
+  console.log(`[${timestamp}] URL: ${req.url}`)
+  console.log(`[${timestamp}] IP: ${req.ip}`)
+  console.log(`[${timestamp}] Host: ${req.get('host')}`)
+  console.log(`[${timestamp}] User-Agent: ${req.get('user-agent')}`)
+  console.log(`[${timestamp}] Headers:`, Object.keys(req.headers))
+  next()
+});
 
 // 静态文件服务 - 提供图片访问
 app.use('/public', express.static(path.join(__dirname, 'public')));
@@ -588,36 +603,64 @@ function getTimestamp() {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${ms}`;
 }
 
-// 广播消息给所有连接的客户端
-function broadcastToClients(message) {
+// 广播消息给小程序客户端
+function broadcastToMiniprogramClients(message) {
   const messageStr = JSON.stringify(message);
   let successCount = 0;
   let failedCount = 0;
 
-  console.log(`[${getTimestamp()}] === 广播消息开始 ===`);
+  console.log(`[${getTimestamp()}] === 广播消息到小程序客户端 ===`);
   console.log(`[${getTimestamp()}] 消息类型: ${message.type}`);
-  console.log(`[${getTimestamp()}] 当前连接客户端数: ${wsClients.size}`);
-  console.log(`[${getTimestamp()}] 客户端列表: ${Array.from(wsClients.keys()).join(', ')}`);
+  console.log(`[${getTimestamp()}] 当前小程序客户端数: ${wsMiniprogramClients.size}`);
 
-  wsClients.forEach((ws, clientId) => {
-    console.log(`[${getTimestamp()}] 检查客户端 ${clientId}, readyState: ${ws.readyState} (OPEN=${ws.OPEN})`);
+  wsMiniprogramClients.forEach((ws, clientId) => {
     if (ws.readyState === ws.OPEN) {
       try {
         ws.send(messageStr);
         successCount++;
-        console.log(`[${getTimestamp()}] ✓ 成功发送给客户端 ${clientId}`);
+        console.log(`[${getTimestamp()}] ✓ 成功发送给小程序客户端 ${clientId}`);
       } catch (error) {
         failedCount++;
-        console.error(`[${getTimestamp()}] ✗ 发送给客户端 ${clientId} 失败:`, error);
+        console.error(`[${getTimestamp()}] ✗ 发送给小程序客户端 ${clientId} 失败:`, error);
       }
     } else {
       failedCount++;
-      console.log(`[${getTimestamp()}] ✗ 客户端 ${clientId} 未就绪，readyState=${ws.readyState}`);
+      console.log(`[${getTimestamp()}] ✗ 小程序客户端 ${clientId} 未就绪，readyState=${ws.readyState}`);
     }
   });
 
-  console.log(`[${getTimestamp()}] === 广播消息结束 ===`);
-  console.log(`[${getTimestamp()}] 总连接数=${wsClients.size}, 成功发送=${successCount}, 失败=${failedCount}`);
+  console.log(`[${getTimestamp()}] === 广播结束 ===`);
+  console.log(`[${getTimestamp()}] 小程序客户端数=${wsMiniprogramClients.size}, 成功=${successCount}, 失败=${failedCount}`);
+}
+
+// 广播消息给管理端客户端
+function broadcastToAdminClients(message) {
+  const messageStr = JSON.stringify(message);
+  let successCount = 0;
+  let failedCount = 0;
+
+  console.log(`[${getTimestamp()}] === 广播消息到管理端客户端 ===`);
+  console.log(`[${getTimestamp()}] 消息类型: ${message.type}`);
+  console.log(`[${getTimestamp()}] 当前管理端客户端数: ${wsAdminClients.size}`);
+
+  wsAdminClients.forEach((ws, clientId) => {
+    if (ws.readyState === ws.OPEN) {
+      try {
+        ws.send(messageStr);
+        successCount++;
+        console.log(`[${getTimestamp()}] ✓ 成功发送给管理端客户端 ${clientId}`);
+      } catch (error) {
+        failedCount++;
+        console.error(`[${getTimestamp()}] ✗ 发送给管理端客户端 ${clientId} 失败:`, error);
+      }
+    } else {
+      failedCount++;
+      console.log(`[${getTimestamp()}] ✗ 管理端客户端 ${clientId} 未就绪，readyState=${ws.readyState}`);
+    }
+  });
+
+  console.log(`[${getTimestamp()}] === 广播结束 ===`);
+  console.log(`[${getTimestamp()}] 管理端客户端数=${wsAdminClients.size}, 成功=${successCount}, 失败=${failedCount}`);
 }
 
 // HTTP接口：通知所有小程序刷新数据
@@ -625,8 +668,8 @@ app.post('/api/notify/refresh', (req, res) => {
   try {
     const { type, data } = req.body;
 
-    // 广播刷新消息
-    broadcastToClients({
+    // 广播刷新消息到小程序客户端
+    broadcastToMiniprogramClients({
       type: type || 'data_update',
       timestamp: Date.now(),
       data: data || {}
@@ -636,7 +679,35 @@ app.post('/api/notify/refresh', (req, res) => {
       code: 200,
       message: '刷新通知发送成功',
       data: {
-        clientCount: wsClients.size
+        miniprogramClientCount: wsMiniprogramClients.size
+      }
+    });
+  } catch (error) {
+    console.error('发送刷新通知失败:', error);
+    res.json({
+      code: 500,
+      message: '发送刷新通知失败'
+    });
+  }
+});
+
+// HTTP接口：通知所有管理端刷新数据
+app.post('/api/notify/admin/refresh', (req, res) => {
+  try {
+    const { type, data } = req.body;
+
+    // 广播刷新消息到管理端客户端
+    broadcastToAdminClients({
+      type: type || 'data_update',
+      timestamp: Date.now(),
+      data: data || {}
+    });
+
+    res.json({
+      code: 200,
+      message: '刷新通知发送成功',
+      data: {
+        adminClientCount: wsAdminClients.size
       }
     });
   } catch (error) {
@@ -665,9 +736,9 @@ app.post('/api/shutdown', async (req, res) => {
     setTimeout(async () => {
       console.log('开始优雅关闭流程...');
 
-      // 1. 通知所有WebSocket客户端
-      console.log(`正在通知 ${wsClients.size} 个WebSocket客户端...`);
-      wsClients.forEach((ws, clientId) => {
+      // 1. 通知所有管理端WebSocket客户端
+      console.log(`正在通知 ${wsAdminClients.size} 个管理端WebSocket客户端...`);
+      wsAdminClients.forEach((ws, clientId) => {
         if (ws.readyState === ws.OPEN) {
           try {
             ws.send(JSON.stringify({
@@ -676,20 +747,44 @@ app.post('/api/shutdown', async (req, res) => {
               timestamp: Date.now()
             }));
           } catch (error) {
-            console.error(`通知客户端 ${clientId} 失败:`, error);
+            console.error(`通知管理端客户端 ${clientId} 失败:`, error);
           }
         }
       });
 
-      // 2. 关闭所有WebSocket连接
-      wsClients.forEach((ws, clientId) => {
+      // 2. 通知所有小程序端WebSocket客户端
+      console.log(`正在通知 ${wsMiniprogramClients.size} 个小程序端WebSocket客户端...`);
+      wsMiniprogramClients.forEach((ws, clientId) => {
+        if (ws.readyState === ws.OPEN) {
+          try {
+            ws.send(JSON.stringify({
+              type: 'server_shutdown',
+              message: '服务器正在关闭，请稍后重连',
+              timestamp: Date.now()
+            }));
+          } catch (error) {
+            console.error(`通知小程序端客户端 ${clientId} 失败:`, error);
+          }
+        }
+      });
+
+      // 3. 关闭所有WebSocket连接
+      wsAdminClients.forEach((ws, clientId) => {
         try {
           ws.close();
         } catch (error) {
-          console.error(`关闭客户端 ${clientId} 连接失败:`, error);
+          console.error(`关闭管理端客户端 ${clientId} 连接失败:`, error);
         }
       });
-      wsClients.clear();
+      wsMiniprogramClients.forEach((ws, clientId) => {
+        try {
+          ws.close();
+        } catch (error) {
+          console.error(`关闭小程序端客户端 ${clientId} 连接失败:`, error);
+        }
+      });
+      wsAdminClients.clear();
+      wsMiniprogramClients.clear();
       console.log('所有WebSocket连接已关闭');
 
       // 3. 关闭数据库连接池
@@ -726,43 +821,39 @@ app.post('/api/shutdown', async (req, res) => {
 
 // ==================== 启动服务器 ====================
 
-// WebSocket服务器
-const wss = new (require('ws').Server)({
+// WebSocket服务器 - 管理端
+const wssAdmin = new (require('ws').Server)({
   server,
-  path: '/ws'  // 指定WebSocket路径
+  path: '/ws/admin'  // 管理端WebSocket路径
 });
 
-wss.on('connection', (ws, request) => {
-  console.log(`[${getTimestamp()}] === 新的WebSocket连接建立 ===`);
+wssAdmin.on('connection', (ws, request) => {
+  console.log(`[${getTimestamp()}] === 新的管理端WebSocket连接建立 ===`);
 
-  // 获取客户端信息（如openid等）
+  // 获取客户端信息
   const urlParams = new URL(request.url, `http://${request.headers.host}`);
   const openid = urlParams.searchParams.get('openid');
-  const client = urlParams.searchParams.get('client');
+  const clientId = openid || `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-  // 确定客户端ID：优先使用openid，如果没有则使用client，如果都没有则使用'anonymous'
-  const clientId = openid || client || 'anonymous';
-
-  console.log(`[${getTimestamp()}] 客户端标识: ${clientId} (openid=${openid}, client=${client})`);
+  console.log(`[${getTimestamp()}] 管理端客户端ID: ${clientId}`);
   console.log(`[${getTimestamp()}] 请求URL: ${request.url}`);
   console.log(`[${getTimestamp()}] WebSocket readyState: ${ws.readyState}`);
 
-  // 存储连接
-  wsClients.set(clientId, ws);
-  console.log(`[${getTimestamp()}] 当前连接客户端数: ${wsClients.size}`);
-  console.log(`[${getTimestamp()}] 已连接客户端列表: ${Array.from(wsClients.keys()).join(', ')}`);
+  // 存储连接到管理端客户端Map
+  wsAdminClients.set(clientId, ws);
+  console.log(`[${getTimestamp()}] 当前管理端连接数: ${wsAdminClients.size}`);
+  console.log(`[${getTimestamp()}] 已连接管理端列表: ${Array.from(wsAdminClients.keys()).join(', ')}`);
 
   // 发送连接成功消息
   const connectionMsg = JSON.stringify({
     type: 'connection_established',
     clientId: clientId,
-    openid: openid,
-    client: client,
+    clientType: 'admin',
     timestamp: Date.now()
   });
   try {
     ws.send(connectionMsg);
-    console.log(`[${getTimestamp()}] ✓ 已发送连接确认消息给客户端 ${clientId}`);
+    console.log(`[${getTimestamp()}] ✓ 已发送连接确认消息给管理端 ${clientId}`);
   } catch (error) {
     console.error(`[${getTimestamp()}] ✗ 发送连接确认消息失败:`, error);
   }
@@ -771,7 +862,7 @@ wss.on('connection', (ws, request) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
-      console.log(`[${getTimestamp()}] 收到客户端 ${clientId} 消息:`, data);
+      console.log(`[${getTimestamp()}] 收到管理端 ${clientId} 消息:`, data);
 
       // 处理心跳
       if (data.type === 'ping') {
@@ -780,29 +871,104 @@ wss.on('connection', (ws, request) => {
           timestamp: Date.now()
         });
         ws.send(pongMsg);
-        console.log(`[${getTimestamp()}] ✓ 已回复pong给客户端 ${clientId}`);
+        console.log(`[${getTimestamp()}] ✓ 已回复pong给管理端 ${clientId}`);
       }
     } catch (error) {
-      console.error(`[${getTimestamp()}] 解析客户端 ${clientId} 消息失败:`, error);
+      console.error(`[${getTimestamp()}] 解析管理端 ${clientId} 消息失败:`, error);
     }
   });
 
   // 连接关闭
   ws.on('close', (code, reason) => {
-    wsClients.delete(clientId);
-    console.log(`[${getTimestamp()}] === WebSocket连接关闭 ===`);
-    console.log(`[${getTimestamp()}] 客户端 ${clientId} 已断开`);
+    wsAdminClients.delete(clientId);
+    console.log(`[${getTimestamp()}] === 管理端WebSocket连接关闭 ===`);
+    console.log(`[${getTimestamp()}] 管理端 ${clientId} 已断开`);
     console.log(`[${getTimestamp()}] 关闭码: ${code}, 原因: ${reason || '无'}`);
-    console.log(`[${getTimestamp()}] 剩余连接数: ${wsClients.size}`);
-    console.log(`[${getTimestamp()}] 剩余客户端列表: ${Array.from(wsClients.keys()).join(', ')}`);
+    console.log(`[${getTimestamp()}] 剩余管理端连接数: ${wsAdminClients.size}`);
   });
 
   // 错误处理
   ws.on('error', (error) => {
-    console.error(`[${getTimestamp()}] === WebSocket错误 ===`);
-    console.error(`[${getTimestamp()}] 客户端 ${clientId} 发生错误:`, error);
-    wsClients.delete(clientId);
-    console.log(`[${getTimestamp()}] 已从客户端列表中移除 ${clientId}`);
+    console.error(`[${getTimestamp()}] === 管理端WebSocket错误 ===`);
+    console.error(`[${getTimestamp()}] 管理端 ${clientId} 发生错误:`, error);
+    wsAdminClients.delete(clientId);
+    console.log(`[${getTimestamp()}] 已从管理端列表中移除 ${clientId}`);
+  });
+});
+
+// WebSocket服务器 - 小程序端
+const wssMiniprogram = new (require('ws').Server)({
+  server,
+  path: '/ws/miniprogram'  // 小程序端WebSocket路径
+});
+
+wssMiniprogram.on('connection', (ws, request) => {
+  console.log(`[${getTimestamp()}] === 新的小程序端WebSocket连接建立 ===`);
+
+  // 获取客户端信息
+  const urlParams = new URL(request.url, `http://${request.headers.host}`);
+  const openid = urlParams.searchParams.get('openid');
+  const clientId = openid || `miniprogram_anon_${Date.now()}`;
+
+  console.log(`[${getTimestamp()}] 小程序端客户端ID: ${clientId}`);
+  console.log(`[${getTimestamp()}] 请求URL: ${request.url}`);
+  console.log(`[${getTimestamp()}] WebSocket readyState: ${ws.readyState}`);
+
+  // 存储连接到小程序端客户端Map
+  wsMiniprogramClients.set(clientId, ws);
+  console.log(`[${getTimestamp()}] 当前小程序端连接数: ${wsMiniprogramClients.size}`);
+  console.log(`[${getTimestamp()}] 已连接小程序端列表: ${Array.from(wsMiniprogramClients.keys()).join(', ')}`);
+
+  // 发送连接成功消息
+  const connectionMsg = JSON.stringify({
+    type: 'connection_established',
+    clientId: clientId,
+    clientType: 'miniprogram',
+    openid: openid,
+    timestamp: Date.now()
+  });
+  try {
+    ws.send(connectionMsg);
+    console.log(`[${getTimestamp()}] ✓ 已发送连接确认消息给小程序端 ${clientId}`);
+  } catch (error) {
+    console.error(`[${getTimestamp()}] ✗ 发送连接确认消息失败:`, error);
+  }
+
+  // 处理客户端消息
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      console.log(`[${getTimestamp()}] 收到小程序端 ${clientId} 消息:`, data);
+
+      // 处理心跳
+      if (data.type === 'ping') {
+        const pongMsg = JSON.stringify({
+          type: 'pong',
+          timestamp: Date.now()
+        });
+        ws.send(pongMsg);
+        console.log(`[${getTimestamp()}] ✓ 已回复pong给小程序端 ${clientId}`);
+      }
+    } catch (error) {
+      console.error(`[${getTimestamp()}] 解析小程序端 ${clientId} 消息失败:`, error);
+    }
+  });
+
+  // 连接关闭
+  ws.on('close', (code, reason) => {
+    wsMiniprogramClients.delete(clientId);
+    console.log(`[${getTimestamp()}] === 小程序端WebSocket连接关闭 ===`);
+    console.log(`[${getTimestamp()}] 小程序端 ${clientId} 已断开`);
+    console.log(`[${getTimestamp()}] 关闭码: ${code}, 原因: ${reason || '无'}`);
+    console.log(`[${getTimestamp()}] 剩余小程序端连接数: ${wsMiniprogramClients.size}`);
+  });
+
+  // 错误处理
+  ws.on('error', (error) => {
+    console.error(`[${getTimestamp()}] === 小程序端WebSocket错误 ===`);
+    console.error(`[${getTimestamp()}] 小程序端 ${clientId} 发生错误:`, error);
+    wsMiniprogramClients.delete(clientId);
+    console.log(`[${getTimestamp()}] 已从小程序端列表中移除 ${clientId}`);
   });
 });
 
@@ -858,7 +1024,8 @@ async function initServer() {
     console.log('='.repeat(50));
     console.log(`医院租床后端服务器已启动`);
     console.log(`HTTP地址: http://localhost:${PORT}`);
-    console.log(`WebSocket地址: ws://localhost:${PORT}/ws`);
+    console.log(`管理端WebSocket地址: ws://localhost:${PORT}/ws/admin`);
+    console.log(`小程序端WebSocket地址: ws://localhost:${PORT}/ws/miniprogram`);
     console.log(`API文档: http://localhost:${PORT}/api/health`);
     console.log(`数据库模式: ${config.database.type}`);
     console.log('='.repeat(50));

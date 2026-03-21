@@ -83,7 +83,11 @@ App({
     const openid = this.globalData.openid || this.globalData.deviceId || 'anonymous'
     // 使用 miniprogram_ 前缀确保小程序的连接ID不会与其他客户端冲突
     const clientId = `miniprogram_${openid}`
-    const socketUrl = `${config.getWsUrl()}?openid=${clientId}`
+    // WebSocket URL：根据环境自动添加路径，使用小程序专用路径 /ws/miniprogram
+    const wsBaseUrl = config.getWsUrl()
+    const socketUrl = wsBaseUrl.includes('/ws/miniprogram')
+      ? `${wsBaseUrl}?openid=${clientId}`
+      : `${wsBaseUrl}/ws/miniprogram?openid=${clientId}`
 
     console.log('App: 尝试连接WebSocket:', socketUrl)
     console.log('App: 当前openid:', this.globalData.openid, '设备ID:', this.globalData.deviceId)
@@ -198,30 +202,31 @@ App({
 
     this.globalData.socketTask = socketTask
 
-    // 心跳保活（延迟启动，避免连接不稳定时立即发送心跳）
-    if (this.globalData.heartbeatInterval) {
-      clearInterval(this.globalData.heartbeatInterval)
-    }
+    // 心跳保活 - 已关闭
+    // if (this.globalData.heartbeatInterval) {
+    //   clearInterval(this.globalData.heartbeatInterval)
+    // }
     // 延迟10秒后开始发送心跳，确保连接稳定
-    setTimeout(() => {
-      this.globalData.heartbeatInterval = setInterval(() => {
-        if (this.globalData.socketTask && this.globalData.socketTask.readyState === 1) {
-          console.log('App: 发送心跳')
-          try {
-            this.globalData.socketTask.send({
-              data: JSON.stringify({ type: 'ping' })
-            })
-          } catch (error) {
-            console.error('App: 发送心跳失败:', error)
-            // 如果发送心跳失败，可能是连接已断开，清除定时器
-            if (this.globalData.heartbeatInterval) {
-              clearInterval(this.globalData.heartbeatInterval)
-              this.globalData.heartbeatInterval = null
-            }
-          }
-        }
-      }, 30000)
-    }, 10000)
+    // setTimeout(() => {
+    //   this.globalData.heartbeatInterval = setInterval(() => {
+    //     if (this.globalData.socketTask && this.globalData.socketTask.readyState === 1) {
+    //       console.log('App: 发送心跳')
+    //       try {
+    //         this.globalData.socketTask.send({
+    //           data: JSON.stringify({ type: 'ping' })
+    //         })
+    //       } catch (error) {
+    //         console.error('App: 发送心跳失败:', error)
+    //         // 如果发送心跳失败，可能是连接已断开，清除定时器
+    //         if (this.globalData.heartbeatInterval) {
+    //           clearInterval(this.globalData.heartbeatInterval)
+    //           this.globalData.heartbeatInterval = null
+    //         }
+    //       }
+    //     }
+    //   }, 30000)
+    // }, 10000)
+    console.log('App: 心跳功能已关闭')
   },
 
   // 关闭 WebSocket
@@ -231,10 +236,11 @@ App({
       clearTimeout(this.globalData.reconnectTimer)
       this.globalData.reconnectTimer = null
     }
-    if (this.globalData.heartbeatInterval) {
-      clearInterval(this.globalData.heartbeatInterval)
-      this.globalData.heartbeatInterval = null
-    }
+    // 心跳定时器已关闭，清除逻辑
+    // if (this.globalData.heartbeatInterval) {
+    //   clearInterval(this.globalData.heartbeatInterval)
+    //   this.globalData.heartbeatInterval = null
+    // }
     // 仅在连接状态为OPEN时关闭连接
     if (this.globalData.socketTask && this.globalData.socketTask.readyState === 1) {
       try {
