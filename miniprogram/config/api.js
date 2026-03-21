@@ -12,7 +12,10 @@ const ENV = {
 }
 
 // 当前环境（开发时改为 ENV.DEV，发布时改为 ENV.PROD）
-const currentEnv = ENV.PROD
+const currentEnv = ENV.PROD // 开发环境
+
+// 生产环境配置
+// const currentEnv = ENV.PROD
 
 // API 基础配置
 const apiConfig = {

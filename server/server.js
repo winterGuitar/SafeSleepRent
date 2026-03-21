@@ -575,36 +575,49 @@ app.get('/api/stats', async (req, res) => {
 
 // ==================== WebSocket实时通知 ====================
 
+// 获取带时间戳的日志前缀
+function getTimestamp() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const ms = String(now.getMilliseconds()).padStart(3, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${ms}`;
+}
+
 // 广播消息给所有连接的客户端
 function broadcastToClients(message) {
   const messageStr = JSON.stringify(message);
   let successCount = 0;
   let failedCount = 0;
 
-  console.log(`=== 广播消息开始 ===`);
-  console.log(`消息类型: ${message.type}`);
-  console.log(`当前连接客户端数: ${wsClients.size}`);
-  console.log(`客户端列表: ${Array.from(wsClients.keys()).join(', ')}`);
+  console.log(`[${getTimestamp()}] === 广播消息开始 ===`);
+  console.log(`[${getTimestamp()}] 消息类型: ${message.type}`);
+  console.log(`[${getTimestamp()}] 当前连接客户端数: ${wsClients.size}`);
+  console.log(`[${getTimestamp()}] 客户端列表: ${Array.from(wsClients.keys()).join(', ')}`);
 
   wsClients.forEach((ws, clientId) => {
-    console.log(`检查客户端 ${clientId}, readyState: ${ws.readyState} (OPEN=${ws.OPEN})`);
+    console.log(`[${getTimestamp()}] 检查客户端 ${clientId}, readyState: ${ws.readyState} (OPEN=${ws.OPEN})`);
     if (ws.readyState === ws.OPEN) {
       try {
         ws.send(messageStr);
         successCount++;
-        console.log(`✓ 成功发送给客户端 ${clientId}`);
+        console.log(`[${getTimestamp()}] ✓ 成功发送给客户端 ${clientId}`);
       } catch (error) {
         failedCount++;
-        console.error(`✗ 发送给客户端 ${clientId} 失败:`, error);
+        console.error(`[${getTimestamp()}] ✗ 发送给客户端 ${clientId} 失败:`, error);
       }
     } else {
       failedCount++;
-      console.log(`✗ 客户端 ${clientId} 未就绪，readyState=${ws.readyState}`);
+      console.log(`[${getTimestamp()}] ✗ 客户端 ${clientId} 未就绪，readyState=${ws.readyState}`);
     }
   });
 
-  console.log(`=== 广播消息结束 ===`);
-  console.log(`总连接数=${wsClients.size}, 成功发送=${successCount}, 失败=${failedCount}`);
+  console.log(`[${getTimestamp()}] === 广播消息结束 ===`);
+  console.log(`[${getTimestamp()}] 总连接数=${wsClients.size}, 成功发送=${successCount}, 失败=${failedCount}`);
 }
 
 // HTTP接口：通知所有小程序刷新数据
@@ -720,7 +733,7 @@ const wss = new (require('ws').Server)({
 });
 
 wss.on('connection', (ws, request) => {
-  console.log('=== 新的WebSocket连接建立 ===');
+  console.log(`[${getTimestamp()}] === 新的WebSocket连接建立 ===`);
 
   // 获取客户端信息（如openid等）
   const urlParams = new URL(request.url, `http://${request.headers.host}`);
@@ -730,14 +743,14 @@ wss.on('connection', (ws, request) => {
   // 确定客户端ID：优先使用openid，如果没有则使用client，如果都没有则使用'anonymous'
   const clientId = openid || client || 'anonymous';
 
-  console.log(`客户端标识: ${clientId} (openid=${openid}, client=${client})`);
-  console.log(`请求URL: ${request.url}`);
-  console.log(`WebSocket readyState: ${ws.readyState}`);
+  console.log(`[${getTimestamp()}] 客户端标识: ${clientId} (openid=${openid}, client=${client})`);
+  console.log(`[${getTimestamp()}] 请求URL: ${request.url}`);
+  console.log(`[${getTimestamp()}] WebSocket readyState: ${ws.readyState}`);
 
   // 存储连接
   wsClients.set(clientId, ws);
-  console.log(`当前连接客户端数: ${wsClients.size}`);
-  console.log(`已连接客户端列表: ${Array.from(wsClients.keys()).join(', ')}`);
+  console.log(`[${getTimestamp()}] 当前连接客户端数: ${wsClients.size}`);
+  console.log(`[${getTimestamp()}] 已连接客户端列表: ${Array.from(wsClients.keys()).join(', ')}`);
 
   // 发送连接成功消息
   const connectionMsg = JSON.stringify({
@@ -749,16 +762,16 @@ wss.on('connection', (ws, request) => {
   });
   try {
     ws.send(connectionMsg);
-    console.log(`✓ 已发送连接确认消息给客户端 ${clientId}`);
+    console.log(`[${getTimestamp()}] ✓ 已发送连接确认消息给客户端 ${clientId}`);
   } catch (error) {
-    console.error(`✗ 发送连接确认消息失败:`, error);
+    console.error(`[${getTimestamp()}] ✗ 发送连接确认消息失败:`, error);
   }
 
   // 处理客户端消息
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
-      console.log(`收到客户端 ${clientId} 消息:`, data);
+      console.log(`[${getTimestamp()}] 收到客户端 ${clientId} 消息:`, data);
 
       // 处理心跳
       if (data.type === 'ping') {
@@ -767,29 +780,29 @@ wss.on('connection', (ws, request) => {
           timestamp: Date.now()
         });
         ws.send(pongMsg);
-        console.log(`✓ 已回复pong给客户端 ${clientId}`);
+        console.log(`[${getTimestamp()}] ✓ 已回复pong给客户端 ${clientId}`);
       }
     } catch (error) {
-      console.error(`解析客户端 ${clientId} 消息失败:`, error);
+      console.error(`[${getTimestamp()}] 解析客户端 ${clientId} 消息失败:`, error);
     }
   });
 
   // 连接关闭
   ws.on('close', (code, reason) => {
     wsClients.delete(clientId);
-    console.log(`=== WebSocket连接关闭 ===`);
-    console.log(`客户端 ${clientId} 已断开`);
-    console.log(`关闭码: ${code}, 原因: ${reason || '无'}`);
-    console.log(`剩余连接数: ${wsClients.size}`);
-    console.log(`剩余客户端列表: ${Array.from(wsClients.keys()).join(', ')}`);
+    console.log(`[${getTimestamp()}] === WebSocket连接关闭 ===`);
+    console.log(`[${getTimestamp()}] 客户端 ${clientId} 已断开`);
+    console.log(`[${getTimestamp()}] 关闭码: ${code}, 原因: ${reason || '无'}`);
+    console.log(`[${getTimestamp()}] 剩余连接数: ${wsClients.size}`);
+    console.log(`[${getTimestamp()}] 剩余客户端列表: ${Array.from(wsClients.keys()).join(', ')}`);
   });
 
   // 错误处理
   ws.on('error', (error) => {
-    console.error(`=== WebSocket错误 ===`);
-    console.error(`客户端 ${clientId} 发生错误:`, error);
+    console.error(`[${getTimestamp()}] === WebSocket错误 ===`);
+    console.error(`[${getTimestamp()}] 客户端 ${clientId} 发生错误:`, error);
     wsClients.delete(clientId);
-    console.log(`已从客户端列表中移除 ${clientId}`);
+    console.log(`[${getTimestamp()}] 已从客户端列表中移除 ${clientId}`);
   });
 });
 

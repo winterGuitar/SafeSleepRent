@@ -22,7 +22,7 @@ function buildImageUrl(imagePath, req) {
   // 获取协议（优先使用 X-Forwarded-Proto，其次使用 req.secure）
   const protocol = req.get('x-forwarded-proto') === 'https'
     ? 'https:'
-    : (req.secure ? 'https:' : 'http:');
+    : (req.secure ? 'https:' : 'http:'); // 开发环境使用http:，生产环境通过Nginx会自动使用https:
 
   const host = req.get('host');
 

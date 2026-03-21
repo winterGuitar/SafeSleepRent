@@ -8,7 +8,7 @@ module.exports = {
       "price": 30,
       "deposit": 300,
       "image": "http://localhost:3000/public/images/bed-1773493598958-259384733.png",
-      "stock": 19,
+      "stock": 18,
       "available": true,
       "features": [
         "铝合金材质",

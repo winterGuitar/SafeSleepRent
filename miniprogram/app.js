@@ -5,6 +5,7 @@ App({
   globalData: {
     userInfo: null,
     openid: null,
+    deviceId: null,  // 设备唯一标识
     cart: [],
     totalDeposit: 0,
     socketTask: null,
@@ -15,10 +16,34 @@ App({
 
   onLaunch() {
     console.log('App onLaunch')
+
+    // 生成设备唯一标识
+    this.generateDeviceId()
+
     // 延迟连接，确保应用完全启动
     setTimeout(() => {
       this.connectWebSocket()
     }, 500)
+  },
+
+  // 生成设备唯一标识
+  generateDeviceId() {
+    try {
+      let deviceId = wx.getStorageSync('device_id')
+      if (!deviceId) {
+        // 生成随机设备ID
+        deviceId = 'device_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+        wx.setStorageSync('device_id', deviceId)
+        console.log('App: 生成新设备ID:', deviceId)
+      } else {
+        console.log('App: 使用已存在的设备ID:', deviceId)
+      }
+      this.globalData.deviceId = deviceId
+    } catch (error) {
+      console.error('App: 生成设备ID失败:', error)
+      // 如果存储失败，生成临时ID
+      this.globalData.deviceId = 'device_temp_' + Date.now()
+    }
   },
 
   onShow() {
@@ -54,12 +79,14 @@ App({
 
     this.globalData.isConnecting = true
 
-    const openid = this.globalData.openid || 'anonymous'
+    // 如果没有真实的openid，使用设备唯一标识作为临时ID
+    const openid = this.globalData.openid || this.globalData.deviceId || 'anonymous'
     // 使用 miniprogram_ 前缀确保小程序的连接ID不会与其他客户端冲突
     const clientId = `miniprogram_${openid}`
     const socketUrl = `${config.getWsUrl()}?openid=${clientId}`
 
     console.log('App: 尝试连接WebSocket:', socketUrl)
+    console.log('App: 当前openid:', this.globalData.openid, '设备ID:', this.globalData.deviceId)
 
     // 清除可能存在的重连定时器
     if (this.globalData.reconnectTimer) {
