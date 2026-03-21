@@ -491,6 +491,13 @@ async function deleteOrder(req, res) {
       });
     }
 
+    if (req.broadcastToClients) {
+      req.broadcastToClients({
+        type: 'order_deleted',
+        orderId: orderId
+      });
+    }
+
     res.json({
       code: 200,
       message: '订单删除成功'
@@ -555,6 +562,13 @@ async function cancelOrder(req, res) {
     }
 
     console.log('取消订单:', order.orderId);
+
+    if (req.broadcastToClients) {
+      req.broadcastToClients({
+        type: 'order_cancelled',
+        orderId: orderId
+      });
+    }
 
     res.json({
       code: 200,

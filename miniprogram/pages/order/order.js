@@ -9,6 +9,26 @@ Page({
   },
 
   onLoad: function (options) {
+    // 检查 app 是否已初始化，添加重试限制
+    if (!app || !app.globalData) {
+      const retryCount = this.data.initRetryCount || 0
+      if (retryCount >= 5) {
+        console.error('订单页: App初始化重试次数超限，跳过初始化')
+        // 继续执行，不调用 app 相关功能
+        this.loadOrders()
+        return
+      }
+
+      console.error(`订单页: App未初始化，第 ${retryCount + 1} 次重试...`)
+      this.setData({ initRetryCount: retryCount + 1 })
+
+      setTimeout(() => {
+        console.log('订单页: 重试初始化')
+        this.onLoad(options)
+      }, 500)
+      return
+    }
+
     this.loadOrders()
     this.connectWebSocket()
   },
@@ -52,6 +72,37 @@ Page({
   // 关闭WebSocket - 订单页不关闭，由全局管理
   closeWebSocket: function() {
     console.log('订单页: 不关闭全局WebSocket，由app.js统一管理')
+  },
+
+  handleOrderPaid: function(message) {
+    console.log('订单页: 处理订单支付消息', message)
+    this.setData({
+      currentTab: 'completed'
+    })
+    this.loadOrders()
+  },
+
+  handleOrderRefunded: function(message) {
+    console.log('订单页: 处理订单退款消息', message)
+    this.setData({
+      currentTab: 'completed'
+    })
+    this.loadOrders()
+  },
+
+  handleOrderCancelled: function(message) {
+    console.log('订单页: 处理订单取消消息', message)
+    if (this.data.currentTab !== 'cancelled') {
+      this.setData({
+        currentTab: 'cancelled'
+      })
+    }
+    this.loadOrders()
+  },
+
+  handleDataUpdate: function(message) {
+    console.log('订单页: 处理数据更新消息', message)
+    this.loadOrders()
   },
 
   loadOrders: function() {

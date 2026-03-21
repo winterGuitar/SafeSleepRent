@@ -11,6 +11,27 @@ Page({
   onLoad: function (options) {
     console.log('Page onLoad')
 
+    // 检查 app 是否已初始化，添加重试限制
+    if (!app || !app.globalData) {
+      const retryCount = this.data.initRetryCount || 0
+      if (retryCount >= 5) {
+        console.error('App初始化重试次数超限，跳过初始化')
+        // 继续执行，不调用 app 相关功能
+        this.testNetworkConnection()
+        this.loadBedTypes()
+        return
+      }
+
+      console.error(`App未初始化，第 ${retryCount + 1} 次重试...`)
+      this.setData({ initRetryCount: retryCount + 1 })
+
+      setTimeout(() => {
+        console.log('重试初始化页面')
+        this.onLoad(options)
+      }, 500)
+      return
+    }
+
     // 测试获取床位列表
     this.testNetworkConnection()
 

@@ -12,7 +12,7 @@ const ENV = {
 }
 
 // 当前环境（开发时改为 ENV.DEV，发布时改为 ENV.PROD）
-const currentEnv = ENV.PROD // 开发环境
+const currentEnv = ENV.DEV // 开发环境
 
 // 生产环境配置
 // const currentEnv = ENV.PROD
@@ -22,7 +22,7 @@ const apiConfig = {
   [ENV.DEV]: {
     // 开发环境：本地服务器
     baseURL: 'http://localhost:3000',
-    wsURL: 'ws://localhost:3000/ws',
+    wsURL: 'ws://localhost:3000',
     // 说明：开发环境在微信开发者工具中需勾选"不校验合法域名..."选项
   },
   [ENV.PROD]: {

@@ -603,6 +603,39 @@ function getTimestamp() {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${ms}`;
 }
 
+function closeSocketQuietly(ws) {
+  if (!ws) {
+    return;
+  }
+
+  try {
+    ws.close();
+  } catch (error) {
+    console.error(`[${getTimestamp()}] 关闭 WebSocket 失败:`, error);
+  }
+}
+
+function registerClient(clientMap, clientId, ws, clientType) {
+  const previousWs = clientMap.get(clientId);
+  if (previousWs && previousWs !== ws) {
+    console.log(`[${getTimestamp()}] ${clientType} 客户端 ${clientId} 已存在旧连接，准备替换`);
+    closeSocketQuietly(previousWs);
+  }
+
+  clientMap.set(clientId, ws);
+}
+
+function unregisterClient(clientMap, clientId, ws, clientType) {
+  const currentWs = clientMap.get(clientId);
+  if (currentWs === ws) {
+    clientMap.delete(clientId);
+    console.log(`[${getTimestamp()}] 已移除${clientType}客户端 ${clientId}`);
+    return;
+  }
+
+  console.log(`[${getTimestamp()}] 跳过移除${clientType}客户端 ${clientId}，因为当前映射已指向新连接`);
+}
+
 // 广播消息给小程序客户端
 function broadcastToMiniprogramClients(message) {
   const messageStr = JSON.stringify(message);
@@ -631,6 +664,11 @@ function broadcastToMiniprogramClients(message) {
 
   console.log(`[${getTimestamp()}] === 广播结束 ===`);
   console.log(`[${getTimestamp()}] 小程序客户端数=${wsMiniprogramClients.size}, 成功=${successCount}, 失败=${failedCount}`);
+}
+
+function broadcastToClients(message) {
+  broadcastToAdminClients(message);
+  broadcastToMiniprogramClients(message);
 }
 
 // 广播消息给管理端客户端
@@ -821,10 +859,11 @@ app.post('/api/shutdown', async (req, res) => {
 
 // ==================== 启动服务器 ====================
 
+const WebSocketLib = require('ws');
+
 // WebSocket服务器 - 管理端
-const wssAdmin = new (require('ws').Server)({
-  server,
-  path: '/ws/admin'  // 管理端WebSocket路径
+const wssAdmin = new WebSocketLib.Server({
+  noServer: true
 });
 
 wssAdmin.on('connection', (ws, request) => {
@@ -840,7 +879,7 @@ wssAdmin.on('connection', (ws, request) => {
   console.log(`[${getTimestamp()}] WebSocket readyState: ${ws.readyState}`);
 
   // 存储连接到管理端客户端Map
-  wsAdminClients.set(clientId, ws);
+  registerClient(wsAdminClients, clientId, ws, '管理端');
   console.log(`[${getTimestamp()}] 当前管理端连接数: ${wsAdminClients.size}`);
   console.log(`[${getTimestamp()}] 已连接管理端列表: ${Array.from(wsAdminClients.keys()).join(', ')}`);
 
@@ -880,7 +919,7 @@ wssAdmin.on('connection', (ws, request) => {
 
   // 连接关闭
   ws.on('close', (code, reason) => {
-    wsAdminClients.delete(clientId);
+    unregisterClient(wsAdminClients, clientId, ws, '管理端');
     console.log(`[${getTimestamp()}] === 管理端WebSocket连接关闭 ===`);
     console.log(`[${getTimestamp()}] 管理端 ${clientId} 已断开`);
     console.log(`[${getTimestamp()}] 关闭码: ${code}, 原因: ${reason || '无'}`);
@@ -891,15 +930,13 @@ wssAdmin.on('connection', (ws, request) => {
   ws.on('error', (error) => {
     console.error(`[${getTimestamp()}] === 管理端WebSocket错误 ===`);
     console.error(`[${getTimestamp()}] 管理端 ${clientId} 发生错误:`, error);
-    wsAdminClients.delete(clientId);
-    console.log(`[${getTimestamp()}] 已从管理端列表中移除 ${clientId}`);
+    unregisterClient(wsAdminClients, clientId, ws, '管理端');
   });
 });
 
 // WebSocket服务器 - 小程序端
-const wssMiniprogram = new (require('ws').Server)({
-  server,
-  path: '/ws/miniprogram'  // 小程序端WebSocket路径
+const wssMiniprogram = new WebSocketLib.Server({
+  noServer: true
 });
 
 wssMiniprogram.on('connection', (ws, request) => {
@@ -915,7 +952,7 @@ wssMiniprogram.on('connection', (ws, request) => {
   console.log(`[${getTimestamp()}] WebSocket readyState: ${ws.readyState}`);
 
   // 存储连接到小程序端客户端Map
-  wsMiniprogramClients.set(clientId, ws);
+  registerClient(wsMiniprogramClients, clientId, ws, '小程序端');
   console.log(`[${getTimestamp()}] 当前小程序端连接数: ${wsMiniprogramClients.size}`);
   console.log(`[${getTimestamp()}] 已连接小程序端列表: ${Array.from(wsMiniprogramClients.keys()).join(', ')}`);
 
@@ -956,7 +993,7 @@ wssMiniprogram.on('connection', (ws, request) => {
 
   // 连接关闭
   ws.on('close', (code, reason) => {
-    wsMiniprogramClients.delete(clientId);
+    unregisterClient(wsMiniprogramClients, clientId, ws, '小程序端');
     console.log(`[${getTimestamp()}] === 小程序端WebSocket连接关闭 ===`);
     console.log(`[${getTimestamp()}] 小程序端 ${clientId} 已断开`);
     console.log(`[${getTimestamp()}] 关闭码: ${code}, 原因: ${reason || '无'}`);
@@ -967,9 +1004,29 @@ wssMiniprogram.on('connection', (ws, request) => {
   ws.on('error', (error) => {
     console.error(`[${getTimestamp()}] === 小程序端WebSocket错误 ===`);
     console.error(`[${getTimestamp()}] 小程序端 ${clientId} 发生错误:`, error);
-    wsMiniprogramClients.delete(clientId);
-    console.log(`[${getTimestamp()}] 已从小程序端列表中移除 ${clientId}`);
+    unregisterClient(wsMiniprogramClients, clientId, ws, '小程序端');
   });
+});
+
+server.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+
+  if (pathname === '/ws/admin') {
+    wssAdmin.handleUpgrade(request, socket, head, (ws) => {
+      wssAdmin.emit('connection', ws, request);
+    });
+    return;
+  }
+
+  if (pathname === '/ws/miniprogram') {
+    wssMiniprogram.handleUpgrade(request, socket, head, (ws) => {
+      wssMiniprogram.emit('connection', ws, request);
+    });
+    return;
+  }
+
+  socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+  socket.destroy();
 });
 
 // ==================== 启动服务器 ====================
@@ -1038,4 +1095,4 @@ initServer().catch(error => {
   process.exit(1);
 });
 
-module.exports = { app, server, broadcastToClients };
+module.exports = { app, server, broadcastToClients, broadcastToMiniprogramClients, broadcastToAdminClients };

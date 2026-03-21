@@ -135,6 +135,7 @@ async function notifyMiniprogramRefresh(type, data = {}) {
 let ws = null;
 let wsReconnectTimer = null;
 let wsHeartbeatTimer = null;
+let wsAutoConnectStarted = false;
 
 /**
  * 连接WebSocket
@@ -193,11 +194,7 @@ function connectWebSocket() {
     }
 
     // 使用本地存储的会话ID，避免每次刷新都创建新连接
-    let uniqueSessionId = localStorage.getItem('admin_ws_session_id');
-    if (!uniqueSessionId) {
-      uniqueSessionId = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      localStorage.setItem('admin_ws_session_id', uniqueSessionId);
-    }
+    const uniqueSessionId = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const wsUrl = `${protocol}//${hostname}${port}/ws/admin?client=admin&openid=${uniqueSessionId}`;
 
     console.log('正在连接WebSocket:', wsUrl);
@@ -206,6 +203,7 @@ function connectWebSocket() {
     ws.onopen = () => {
       console.log('WebSocket连接成功');
       updateWsStatus(true);
+      localStorage.removeItem('admin_ws_retry_count');
       // 清除重连定时器
       if (wsReconnectTimer) {
         clearTimeout(wsReconnectTimer);
@@ -517,8 +515,14 @@ function closeWebSocket() {
 // 页面加载时自动连接WebSocket
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
-    connectWebSocket();
+    if (localStorage.getItem('auth_token') && !wsAutoConnectStarted) {
+      wsAutoConnectStarted = true;
+      connectWebSocket();
+    }
   });
 } else {
-  connectWebSocket();
+  if (localStorage.getItem('auth_token') && !wsAutoConnectStarted) {
+    wsAutoConnectStarted = true;
+    connectWebSocket();
+  }
 }

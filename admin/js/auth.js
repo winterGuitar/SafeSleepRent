@@ -43,6 +43,10 @@ function showMainPage() {
   if (typeof initApp === 'function') {
     initApp();
   }
+
+  if (typeof connectWebSocket === 'function') {
+    connectWebSocket();
+  }
 }
 
 // 处理登录
@@ -71,11 +75,6 @@ async function handleLogin(event) {
 
     showSuccess('登录成功');
     showMainPage();
-
-    // 初始化应用
-    if (typeof initApp === 'function') {
-      initApp();
-    }
   } else {
     showError('用户名或密码错误');
   }
@@ -85,6 +84,10 @@ async function handleLogin(event) {
 function handleLogout() {
   if (!confirm('确定要退出登录吗？')) {
     return;
+  }
+
+  if (typeof closeWebSocket === 'function') {
+    closeWebSocket();
   }
 
   // 清除本地存储
