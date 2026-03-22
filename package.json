@@ -1,4 +1,11 @@
 {
+  "scripts": {
+    "env:sync": "node scripts/sync-env.js",
+    "env:dev": "node scripts/set-shared-env.js development",
+    "env:prod": "node scripts/set-shared-env.js production",
+    "env:miniprogram:dev": "node scripts/set-miniprogram-env.js development",
+    "env:miniprogram:prod": "node scripts/set-miniprogram-env.js production"
+  },
   "dependencies": {
     "dotenv": "^17.3.1"
   }
