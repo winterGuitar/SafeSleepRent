@@ -1,83 +1,157 @@
-// 应用配置文件
-const bedConfig = require('./bedTypes');
+const bedConfig = require('./bedTypes')
+
+function readStringEnv(name, fallback) {
+  const value = process.env[name]
+  return value === undefined || value === '' ? fallback : value
+}
+
+function readNumberEnv(name, fallback) {
+  const value = process.env[name]
+  if (value === undefined || value === '') {
+    return fallback
+  }
+
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function readBooleanEnv(name, fallback) {
+  const value = process.env[name]
+  if (value === undefined || value === '') {
+    return fallback
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase())
+}
+
+const env = readStringEnv('APP_ENV', readStringEnv('NODE_ENV', 'development'))
+const isProduction = env === 'production'
+
+const serverPort = readNumberEnv('PORT', 3000)
+const serverHost = readStringEnv('SERVER_HOST', isProduction ? '0.0.0.0' : 'localhost')
+const serverDomain = readStringEnv(
+  'SERVER_DOMAIN',
+  isProduction ? 'www.axxzc.cn' : `localhost:${serverPort}`
+)
+const baseUrl = readStringEnv(
+  'BASE_URL',
+  isProduction ? `https://${serverDomain}` : `http://${serverDomain}`
+)
+const wsBaseUrl = readStringEnv(
+  'WS_BASE_URL',
+  isProduction ? `wss://${serverDomain}` : `ws://${serverDomain}`
+)
+const adminBaseUrl = readStringEnv(
+  'ADMIN_BASE_URL',
+  isProduction ? `https://${serverDomain}` : 'http://localhost:8080'
+)
+const corsAllowedOrigins = readStringEnv(
+  'CORS_ALLOWED_ORIGINS',
+  [adminBaseUrl, baseUrl, 'http://localhost:8080', 'http://localhost:3000']
+    .filter(Boolean)
+    .join(',')
+)
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean)
 
 module.exports = {
-  // 服务器配置
   server: {
-    port: 3000,
-    host: 'localhost',
-    // 生产环境需要修改为实际域名
-    domain: process.env.NODE_ENV === 'production' ? 'www.axxzc.cn' : 'localhost:3000',
-    // 是否启用HTTPS
-    https: process.env.NODE_ENV === 'production'
+    port: serverPort,
+    host: serverHost,
+    domain: serverDomain,
+    https: isProduction,
+    baseUrl,
+    wsBaseUrl,
+    adminBaseUrl
   },
 
-  // 数据库配置
   database: {
-    type: 'mysql', // 'memory' | 'mysql' | 'mongodb'
+    type: readStringEnv('DB_TYPE', 'mysql'),
     mysql: {
-      host: 'localhost',
-      port: 3306,
-      database: 'hosp_bed',
-      username: 'beduser',
-      password: '123456', // 请修改为你的MySQL密码
-      connectionLimit: 10
+      host: readStringEnv('DB_HOST', 'localhost'),
+      port: readNumberEnv('DB_PORT', 3306),
+      database: readStringEnv('DB_NAME', 'hosp_bed'),
+      username: readStringEnv('DB_USER', 'beduser'),
+      password: readStringEnv('DB_PASSWORD', '123456'),
+      connectionLimit: readNumberEnv('DB_CONNECTION_LIMIT', 10)
     },
     mongodb: {
-      url: 'mongodb://localhost:27017/hosp_bed'
+      url: readStringEnv('MONGODB_URL', 'mongodb://localhost:27017/hosp_bed')
     }
   },
 
-  // 日志配置
   logging: {
-    level: process.env.NODE_ENV === 'production' ? 'error' : 'debug',
-    // 日志文件路径
-    filePath: './logs/app.log',
-    // 是否在控制台输出
-    console: true
+    level: readStringEnv('LOG_LEVEL', isProduction ? 'error' : 'debug'),
+    filePath: readStringEnv('LOG_FILE_PATH', './logs/app.log'),
+    console: readBooleanEnv('LOG_CONSOLE', true)
   },
 
-  // 小程序配置
+  cors: {
+    allowedOrigins: corsAllowedOrigins
+  },
+
   wechat: {
-    // 小程序AppID（请替换为你的AppID）
-    appId: process.env.WECHAT_APP_ID || 'your_app_id',
-    // 小程序AppSecret（请替换为你的AppSecret）
-    appSecret: process.env.WECHAT_APP_SECRET || 'your_app_secret',
-    // 获取openid的接口
+    appId: readStringEnv('WECHAT_APP_ID', 'your_app_id'),
+    appSecret: readStringEnv('WECHAT_APP_SECRET', 'your_app_secret'),
     loginUrl: 'https://api.weixin.qq.com/sns/jscode2session',
-    // access_token有效期（秒）
-    tokenExpire: 7200
+    tokenExpire: readNumberEnv('WECHAT_TOKEN_EXPIRE', 7200)
   },
 
-  // 运行环境
-  env: process.env.NODE_ENV || 'development',
+  adminAuth: {
+    username: readStringEnv('ADMIN_USERNAME', 'admin'),
+    password: readStringEnv('ADMIN_PASSWORD', 'admin123'),
+    tokenSecret: readStringEnv('ADMIN_TOKEN_SECRET', 'change_this_admin_token_secret'),
+    tokenTtlMs: readNumberEnv('ADMIN_TOKEN_TTL_MS', 24 * 60 * 60 * 1000)
+  },
 
-  // 保留旧配置以兼容
+  env,
+
   miniprogram: {
-    // 获取openid的接口
     loginUrl: 'https://api.weixin.qq.com/sns/jscode2session',
-    // 会话密钥（需要从微信服务器获取）
-    sessionSecret: 'your_session_secret',
-    // access_token有效期（秒）
-    tokenExpire: 7200
+    sessionSecret: readStringEnv('MINIPROGRAM_SESSION_SECRET', 'your_session_secret'),
+    tokenExpire: readNumberEnv('MINIPROGRAM_TOKEN_EXPIRE', 7200)
   },
 
-  // 引入床位配置
-  bed: bedConfig,
+  bed: {
+    ...bedConfig,
+    payment: {
+      ...(bedConfig.payment || {}),
+      wechat: {
+        ...((bedConfig.payment && bedConfig.payment.wechat) || {}),
+        appid: readStringEnv(
+          'WECHAT_PAY_APP_ID',
+          readStringEnv('WECHAT_APP_ID', (bedConfig.payment && bedConfig.payment.wechat && bedConfig.payment.wechat.appid) || 'your_wx_appid')
+        ),
+        mchid: readStringEnv(
+          'WECHAT_PAY_MCH_ID',
+          (bedConfig.payment && bedConfig.payment.wechat && bedConfig.payment.wechat.mchid) || 'your_mchid'
+        ),
+        apiKey: readStringEnv(
+          'WECHAT_PAY_API_KEY',
+          (bedConfig.payment && bedConfig.payment.wechat && bedConfig.payment.wechat.apiKey) || 'your_api_key'
+        ),
+        notifyUrl: readStringEnv(
+          'WECHAT_PAY_NOTIFY_URL',
+          `${baseUrl}/api/payment/notify`
+        )
+      },
+      alipay: {
+        ...((bedConfig.payment && bedConfig.payment.alipay) || {}),
+        notifyUrl: readStringEnv(
+          'ALIPAY_NOTIFY_URL',
+          `${baseUrl}/api/alipay/notify`
+        )
+      }
+    }
+  },
 
-  // 系统配置
   system: {
-    // 系统名称
     name: '医院租床服务',
-    // 系统版本
     version: '1.0.0',
-    // 时区
     timezone: 'Asia/Shanghai',
-    // 语言
     language: 'zh-CN',
-    // 货币单位
     currency: 'CNY',
-    // 货币符号
     currencySymbol: '¥'
   }
 }

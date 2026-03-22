@@ -1,5 +1,30 @@
+// API 基础配置，优先使用 env:sync 生成的环境文件。
+const APP_ENV_CONFIG = window.__APP_ENV_CONFIG__ || null;
+
+function getConfiguredEnvironment() {
+  if (!APP_ENV_CONFIG || !APP_ENV_CONFIG.currentEnv || !APP_ENV_CONFIG.envConfig) {
+    return null;
+  }
+
+  return APP_ENV_CONFIG.envConfig[APP_ENV_CONFIG.currentEnv] || null;
+}
+
+const resolvedEnvConfig = getConfiguredEnvironment();
+
+function getAuthToken() {
+  try {
+    return localStorage.getItem('auth_token') || '';
+  } catch (error) {
+    return '';
+  }
+}
+
 // API基础配置 - 自动判断环境（支持localhost、局域网IP、生产环境）
 const API_BASE = (function() {
+  if (resolvedEnvConfig && resolvedEnvConfig.baseURL) {
+    return `${resolvedEnvConfig.baseURL.replace(/\/+$/, '')}/api`;
+  }
+
   const hostname = location.hostname;
 
   // 本地开发环境
@@ -20,9 +45,11 @@ const API_BASE = (function() {
 // 封装请求方法
 async function apiRequest(url, options = {}) {
   try {
+    const authToken = getAuthToken();
     const response = await fetch(`${API_BASE}${url}`, {
       headers: {
         'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         ...options.headers
       },
       ...options
@@ -41,22 +68,22 @@ async function apiRequest(url, options = {}) {
 
 // 获取统计数据
 async function getStats() {
-  return apiRequest('/stats');
+  return apiRequest('/admin/stats');
 }
 
 // 获取订单列表
 async function getOrders() {
-  return apiRequest('/order/list');
+  return apiRequest('/admin/order/list');
 }
 
 // 查询订单
 async function getOrder(orderId) {
-  return apiRequest(`/order/query/${orderId}`);
+  return apiRequest(`/admin/order/query/${orderId}`);
 }
 
 // 删除订单
 async function deleteOrder(orderId) {
-  return apiRequest('/order/delete', {
+  return apiRequest('/admin/order/delete', {
     method: 'DELETE',
     body: JSON.stringify({ orderId })
   });
@@ -64,7 +91,7 @@ async function deleteOrder(orderId) {
 
 // 退还押金
 async function refundOrder(orderId) {
-  return apiRequest('/order/refund', {
+  return apiRequest('/admin/order/refund', {
     method: 'POST',
     body: JSON.stringify({ orderId })
   });
@@ -124,7 +151,7 @@ async function saveSystemSettings(settings) {
 
 // 通知小程序刷新数据
 async function notifyMiniprogramRefresh(type, data = {}) {
-  return apiRequest('/notify/refresh', {
+  return apiRequest('/admin/notify/refresh', {
     method: 'POST',
     body: JSON.stringify({ type, data })
   });
@@ -175,27 +202,30 @@ function connectWebSocket() {
       return;
     }
 
-    const hostname = location.hostname;
-
-    // 判断环境和协议
-    let protocol, port;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      // 本地开发环境
-      protocol = 'ws:';
-      port = ':3000';
-    } else if (/^(192\.168|10\.|172\.(1[6-9]|2[0-9]|3[01]))/.test(hostname)) {
-      // 局域网IP访问
-      protocol = 'ws:';
-      port = ':3000';
-    } else {
-      // 生产环境
-      protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      port = '';
-    }
-
     // 使用本地存储的会话ID，避免每次刷新都创建新连接
     const uniqueSessionId = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const wsUrl = `${protocol}//${hostname}${port}/ws/admin?client=admin&openid=${uniqueSessionId}`;
+    const authToken = getAuthToken();
+    const wsBaseUrl = resolvedEnvConfig && resolvedEnvConfig.wsBaseURL
+      ? resolvedEnvConfig.wsBaseURL.replace(/\/+$/, '')
+      : null;
+    const wsUrl = wsBaseUrl
+      ? `${wsBaseUrl}/ws/admin?client=admin&openid=${uniqueSessionId}&adminToken=${encodeURIComponent(authToken)}`
+      : (function() {
+          const hostname = location.hostname;
+          let protocol, port;
+          if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            protocol = 'ws:';
+            port = ':3000';
+          } else if (/^(192\.168|10\.|172\.(1[6-9]|2[0-9]|3[01]))/.test(hostname)) {
+            protocol = 'ws:';
+            port = ':3000';
+          } else {
+            protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            port = '';
+          }
+
+          return `${protocol}//${hostname}${port}/ws/admin?client=admin&openid=${uniqueSessionId}&adminToken=${encodeURIComponent(authToken)}`;
+        })();
 
     console.log('正在连接WebSocket:', wsUrl);
     ws = new WebSocket(wsUrl);

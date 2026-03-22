@@ -369,10 +369,11 @@ Page({
   // 取消未支付的订单
   cancelUnpaidOrder: function(orderId, message) {
     wx.request({
-      url: config.getApiUrl('/api/order/cancel'),
+      url: config.getApiUrl(config.apiPaths.myCancelOrder),
       method: 'POST',
       data: {
-        orderId: orderId
+        orderId: orderId,
+        openid: app.globalData.openid || 'test_openid'
       },
       success: () => {
         // 重新加载床位数据

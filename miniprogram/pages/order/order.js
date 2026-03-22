@@ -112,7 +112,7 @@ Page({
 
     // 调用后端接口获取订单列表
     wx.request({
-      url: config.getApiUrl(config.apiPaths.orderList),
+      url: config.getApiUrl(config.apiPaths.myOrderList),
       method: 'GET',
       data: {
         openid: app.globalData.openid || 'test_openid'
@@ -187,10 +187,11 @@ Page({
 
           // 调用后端接口退还押金
           wx.request({
-            url: config.getApiUrl(config.apiPaths.refundOrder),
+            url: config.getApiUrl(config.apiPaths.myRefundOrder),
             method: 'POST',
             data: {
-              orderId: orderId
+              orderId: orderId,
+              openid: app.globalData.openid || 'test_openid'
             },
             success: (res) => {
               wx.hideLoading()
@@ -290,10 +291,11 @@ Page({
 
           // 调用后端取消订单接口
           wx.request({
-            url: config.getApiUrl('/api/order/cancel'),
+            url: config.getApiUrl(config.apiPaths.myCancelOrder),
             method: 'POST',
             data: {
-              orderId: orderId
+              orderId: orderId,
+              openid: app.globalData.openid || 'test_openid'
             },
             success: (res) => {
               wx.hideLoading()

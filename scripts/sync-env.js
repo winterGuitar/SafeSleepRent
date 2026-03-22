@@ -1,4 +1,4 @@
-﻿const fs = require('fs')
+const fs = require('fs')
 const path = require('path')
 
 const rootDir = path.resolve(__dirname, '..')
@@ -39,7 +39,12 @@ function buildServerEnv() {
 }
 
 function buildMiniprogramEnv() {
-  return ensureTrailingNewline(`module.exports = {\n  currentEnv: '${currentEnv}'\n}\n`)
+  const payload = {
+    currentEnv,
+    envConfig
+  }
+
+  return ensureTrailingNewline(`module.exports = ${JSON.stringify(payload, null, 2)}\n`)
 }
 
 function buildAdminEnv() {

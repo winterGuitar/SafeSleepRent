@@ -1,12 +1,6 @@
 // 用户认证相关
 let currentUser = null;
 
-// 默认管理员账号密码
-const DEFAULT_ADMIN = {
-  username: 'admin',
-  password: 'admin123'
-};
-
 // 检查登录状态
 function checkAuth() {
   const token = localStorage.getItem('auth_token');
@@ -15,6 +9,12 @@ function checkAuth() {
   if (token && user) {
     try {
       currentUser = JSON.parse(user);
+      if (currentUser.expiresAt && currentUser.expiresAt < Date.now()) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_user');
+        currentUser = null;
+        return false;
+      }
       return true;
     } catch (e) {
       return false;
@@ -61,22 +61,35 @@ async function handleLogin(event) {
     return;
   }
 
-  // 简单验证（实际项目应该调用后端API）
-  if (username === DEFAULT_ADMIN.username && password === DEFAULT_ADMIN.password) {
-    // 登录成功
+  try {
+    const response = await fetch(`${API_BASE}/admin/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ username, password })
+    });
+
+    const result = await response.json();
+    if (result.code !== 200 || !result.data || !result.data.token) {
+      showError(result.message || '用户名或密码错误');
+      return;
+    }
+
     currentUser = {
-      username: username,
-      loginTime: new Date().toISOString()
+      ...(result.data.user || { username }),
+      loginTime: new Date().toISOString(),
+      expiresAt: result.data.expiresAt
     };
 
-    // 存储到localStorage
-    localStorage.setItem('auth_token', Date.now().toString());
+    localStorage.setItem('auth_token', result.data.token);
     localStorage.setItem('auth_user', JSON.stringify(currentUser));
 
     showSuccess('登录成功');
     showMainPage();
-  } else {
-    showError('用户名或密码错误');
+  } catch (error) {
+    console.error('Admin login failed:', error);
+    showError('登录失败，请检查服务端连接');
   }
 }
 

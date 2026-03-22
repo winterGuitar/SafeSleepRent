@@ -125,6 +125,9 @@ async function uploadBedImage() {
 
     const response = await fetch(`${API_BASE}/upload/bedImage`, {
       method: 'POST',
+      headers: getAuthToken() ? {
+        Authorization: `Bearer ${getAuthToken()}`
+      } : {},
       body: formData
     });
 
