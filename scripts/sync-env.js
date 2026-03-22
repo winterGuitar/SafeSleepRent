@@ -23,7 +23,10 @@ function ensureTrailingNewline(content) {
 }
 
 function buildServerEnv() {
-  const lines = [
+  const envVars = selectedConfig.env || {}
+  
+  // 基础环境变量（兼容旧格式）
+  const baseLines = [
     `APP_ENV=${currentEnv}`,
     `NODE_ENV=${currentEnv}`,
     '',
@@ -34,7 +37,24 @@ function buildServerEnv() {
     `WS_BASE_URL=${selectedConfig.wsBaseURL || 'ws://localhost:3000'}`,
     `ADMIN_BASE_URL=${selectedConfig.adminBaseURL || 'http://localhost:8080'}`
   ]
-
+  
+  // 从 env 对象添加所有环境变量
+  const envLines = []
+  for (const [key, value] of Object.entries(envVars)) {
+    // 避免重复添加基础变量
+    if (!['APP_ENV', 'NODE_ENV', 'PORT', 'SERVER_HOST', 'SERVER_DOMAIN', 'BASE_URL', 'WS_BASE_URL', 'ADMIN_BASE_URL'].includes(key)) {
+      envLines.push(`${key}=${value}`)
+    }
+  }
+  
+  // 添加分组注释
+  const lines = baseLines
+  if (envLines.length > 0) {
+    lines.push('')
+    lines.push('# 数据库与支付配置')
+    lines.push(...envLines)
+  }
+  
   return ensureTrailingNewline(lines.join('\n'))
 }
 

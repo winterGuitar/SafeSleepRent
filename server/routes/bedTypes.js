@@ -4,6 +4,12 @@ const {
   updateRuntimeConfig
 } = require('../data/runtimeStore')
 
+let _broadcast = null
+
+function setBroadcast(fn) {
+  _broadcast = fn
+}
+
 function buildImageUrl(imagePath, req) {
   if (!imagePath) return null
 
@@ -100,8 +106,8 @@ async function addBedType(req, res) {
       return runtimeConfig
     })
 
-    if (req.broadcastToClients) {
-      req.broadcastToClients({
+    if (_broadcast) {
+      _broadcast({
         type: 'bed_types_update',
         action: 'add',
         data: newBedType,
@@ -153,8 +159,8 @@ async function updateBedType(req, res) {
       })
     }
 
-    if (req.broadcastToClients) {
-      req.broadcastToClients({
+    if (_broadcast) {
+      _broadcast({
         type: 'bed_types_update',
         action: 'update',
         data: updatedBedType,
@@ -202,8 +208,8 @@ async function deleteBedType(req, res) {
       })
     }
 
-    if (req.broadcastToClients) {
-      req.broadcastToClients({
+    if (_broadcast) {
+      _broadcast({
         type: 'bed_types_update',
         action: 'delete',
         data: { id: deletedBed.id },
@@ -358,8 +364,8 @@ async function saveSystemSettings(req, res) {
       return runtimeConfig
     })
 
-    if (req.broadcastToClients) {
-      req.broadcastToClients({
+    if (_broadcast) {
+      _broadcast({
         type: 'settings_update',
         data: settings,
         runtimeConfig: configData,
@@ -381,6 +387,7 @@ async function saveSystemSettings(req, res) {
 }
 
 module.exports = {
+  setBroadcast,
   getBedTypes,
   getBedTypeById,
   getAvailableBedTypes,

@@ -110,13 +110,11 @@ Page({
       title: '加载中...'
     })
 
-    // 调用后端接口获取订单列表
     wx.request({
       url: config.getApiUrl(config.apiPaths.myOrderList),
       method: 'GET',
-      data: {
-        openid: app.globalData.openid || 'test_openid'
-      },
+      header: { 'x-user-token': app.globalData.userToken },
+      data: {},
       success: (res) => {
         wx.hideLoading()
 
@@ -189,10 +187,8 @@ Page({
           wx.request({
             url: config.getApiUrl(config.apiPaths.myRefundOrder),
             method: 'POST',
-            data: {
-              orderId: orderId,
-              openid: app.globalData.openid || 'test_openid'
-            },
+            header: { 'x-user-token': app.globalData.userToken },
+            data: { orderId: orderId },
             success: (res) => {
               wx.hideLoading()
 
@@ -238,13 +234,11 @@ Page({
       title: '处理中...'
     })
 
-    // 调用支付接口
     wx.request({
       url: config.getApiUrl('/api/order/pay'),
       method: 'POST',
-      data: {
-        orderId: orderId
-      },
+      header: { 'x-user-token': app.globalData.userToken },
+      data: { orderId: orderId },
       success: (res) => {
         wx.hideLoading()
 
@@ -293,10 +287,8 @@ Page({
           wx.request({
             url: config.getApiUrl(config.apiPaths.myCancelOrder),
             method: 'POST',
-            data: {
-              orderId: orderId,
-              openid: app.globalData.openid || 'test_openid'
-            },
+            header: { 'x-user-token': app.globalData.userToken },
+            data: { orderId: orderId },
             success: (res) => {
               wx.hideLoading()
 

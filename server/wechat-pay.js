@@ -1,8 +1,9 @@
 // 微信支付集成模块
 const axios = require('axios');
+const { generateNonceStr, generateMD5Sign } = require('./utils/crypto');
 
-// 微信支付配置
-const WX_PAY_CONFIG = {
+// 微信支付配置（可通过setConfig更新）
+let WX_PAY_CONFIG = {
   appid: 'your_wx_appid',
   mchid: 'your_mchid',
   apiKey: 'your_api_key',
@@ -11,6 +12,20 @@ const WX_PAY_CONFIG = {
   orderQueryUrl: 'https://api.mch.weixin.qq.com/pay/orderquery',
   refundUrl: 'https://api.mch.weixin.qq.com/secapi/pay/refund'
 };
+
+/**
+ * 更新微信支付配置
+ * @param {Object} newConfig - 新的配置对象
+ */
+function setConfig(newConfig) {
+  if (newConfig.appid) WX_PAY_CONFIG.appid = newConfig.appid;
+  if (newConfig.mchid) WX_PAY_CONFIG.mchid = newConfig.mchid;
+  if (newConfig.apiKey) WX_PAY_CONFIG.apiKey = newConfig.apiKey;
+  if (newConfig.notifyUrl) WX_PAY_CONFIG.notifyUrl = newConfig.notifyUrl;
+  if (newConfig.unifiedOrderUrl) WX_PAY_CONFIG.unifiedOrderUrl = newConfig.unifiedOrderUrl;
+  if (newConfig.orderQueryUrl) WX_PAY_CONFIG.orderQueryUrl = newConfig.orderQueryUrl;
+  if (newConfig.refundUrl) WX_PAY_CONFIG.refundUrl = newConfig.refundUrl;
+}
 
 /**
  * 调用微信统一下单接口
@@ -214,30 +229,6 @@ async function refund(refundData) {
 }
 
 // 辅助函数
-function generateNonceStr(length = 32) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
-function generateMD5Sign(params, apiKey) {
-  const sortedKeys = Object.keys(params).sort();
-  let stringA = '';
-  
-  sortedKeys.forEach(key => {
-    if (params[key] !== undefined && params[key] !== '') {
-      stringA += `${key}=${params[key]}&`;
-    }
-  });
-  
-  stringA += `key=${apiKey}`;
-  
-  return require('crypto').createHash('md5').update(stringA, 'utf8').digest('hex').toUpperCase();
-}
-
 function objectToXml(obj) {
   let xml = '<xml>';
   for (const key in obj) {
@@ -263,5 +254,7 @@ module.exports = {
   unifiedOrder,
   generateMinipayParams,
   queryOrder,
-  refund
+  refund,
+  setConfig,
+  xmlToObject
 };

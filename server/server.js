@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const crypto = require('crypto');
@@ -13,6 +13,8 @@ require('dotenv').config();
 const config = require('./config/appConfig');
 const bedTypeRoutes = require('./routes/bedTypes');
 const orderRoutes = require('./routes/orders');
+const wechatPay = require('./wechat-pay');
+const { generateNonceStr, generateMD5Sign, generateUserToken } = require('./utils/crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -21,6 +23,10 @@ const allowedCorsOrigins = new Set(config.cors.allowedOrigins || []);
 
 const wsAdminClients = new Map();
 const wsMiniprogramClients = new Map();
+
+// 用户会话存储：token → { openid, createdAt }
+const userSessions = new Map();
+const USER_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7天
 
 let db = null;
 
@@ -74,29 +80,6 @@ const upload = multer({
     cb(new Error('只允许上传图片文件 (jpeg, jpg, png, gif, webp)'));
   }
 });
-
-function generateNonceStr(length = 32) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < length; i += 1) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
-function generateMD5Sign(params, apiKey) {
-  const sortedKeys = Object.keys(params).sort();
-  let stringA = '';
-
-  sortedKeys.forEach((key) => {
-    if (params[key] !== undefined && params[key] !== '') {
-      stringA += `${key}=${params[key]}&`;
-    }
-  });
-
-  stringA += `key=${apiKey}`;
-  return crypto.createHash('md5').update(stringA, 'utf8').digest('hex').toUpperCase();
-}
 
 function createAdminToken(username, expiresAt) {
   const payload = `${username}.${expiresAt}`;
@@ -154,16 +137,20 @@ function requireAdminAuth(req, res, next) {
   next();
 }
 
-function requireUserOpenid(req, res, next) {
-  const openid = req.query.openid || (req.body && req.body.openid);
-  if (!openid) {
-    return res.status(400).json({
-      code: 400,
-      message: 'openid is required'
-    });
+// 用户 session token 中间件——从 x-user-token 头或 body/query 中读取
+function requireUserAuth(req, res, next) {
+  const token = req.get('x-user-token') || req.query.userToken || (req.body && req.body.userToken) || null;
+  if (!token) {
+    return res.status(401).json({ code: 401, message: '请先登录' });
   }
 
-  req.userOpenid = openid;
+  const session = userSessions.get(token);
+  if (!session || Date.now() - session.createdAt > USER_SESSION_TTL_MS) {
+    userSessions.delete(token);
+    return res.status(401).json({ code: 401, message: '登录已过期，请重新登录' });
+  }
+
+  req.userOpenid = session.openid;
   next();
 }
 
@@ -240,6 +227,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// 微信小程序登录：返回 session token，不返回 session_key
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { code } = req.body || {};
@@ -260,13 +248,15 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
+    const openid = wxData.openid;
+    // session_key 仅在服务端保留，不下发客户端
+    const token = generateUserToken();
+    userSessions.set(token, { openid, createdAt: Date.now() });
+
     res.json({
       code: 200,
       message: '登录成功',
-      data: {
-        openid: wxData.openid,
-        session_key: wxData.session_key
-      }
+      data: { token, openid }
     });
   } catch (error) {
     console.error('登录失败:', error);
@@ -297,18 +287,9 @@ app.get('/api/bedTypes', bedTypeRoutes.getBedTypes);
 app.get('/api/bedTypes/available', bedTypeRoutes.getAvailableBedTypes);
 app.get('/api/bedTypes/inventory', bedTypeRoutes.getBedInventory);
 app.get('/api/bedTypes/:id', bedTypeRoutes.getBedTypeById);
-app.post('/api/bedTypes', requireAdminAuth, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  bedTypeRoutes.addBedType(req, res);
-});
-app.put('/api/bedTypes/:id', requireAdminAuth, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  bedTypeRoutes.updateBedType(req, res);
-});
-app.delete('/api/bedTypes/:id', requireAdminAuth, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  bedTypeRoutes.deleteBedType(req, res);
-});
+app.post('/api/bedTypes', requireAdminAuth, bedTypeRoutes.addBedType);
+app.put('/api/bedTypes/:id', requireAdminAuth, bedTypeRoutes.updateBedType);
+app.delete('/api/bedTypes/:id', requireAdminAuth, bedTypeRoutes.deleteBedType);
 app.post('/api/upload/bedImage', requireAdminAuth, upload.single('image'), (req, res) => {
   try {
     if (!req.file) {
@@ -334,23 +315,15 @@ app.post('/api/upload/bedImage', requireAdminAuth, upload.single('image'), (req,
 app.get('/api/rules/deposit', bedTypeRoutes.getDepositRules);
 app.get('/api/rules/rental', bedTypeRoutes.getRentalPolicy);
 app.get('/api/rules/businessHours', bedTypeRoutes.getBusinessHours);
-app.post('/api/settings', requireAdminAuth, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  bedTypeRoutes.saveSystemSettings(req, res);
-});
+app.post('/api/settings', requireAdminAuth, bedTypeRoutes.saveSystemSettings);
 
-app.post('/api/order/create', (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.createOrder(req, res);
-});
-app.post('/api/order/pay', (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.payOrder(req, res);
-});
+app.post('/api/order/create', requireUserAuth, orderRoutes.createOrder);
+app.post('/api/order/pay', requireUserAuth, orderRoutes.payOrder);
 
-app.post('/api/payment/getParams', async (req, res) => {
+// 获取微信支付参数
+app.post('/api/payment/getParams', requireUserAuth, async (req, res) => {
   try {
-    const { orderId, openid } = req.body || {};
+    const { orderId } = req.body || {};
     if (!orderId) {
       return res.json({ code: 400, message: '订单号不能为空' });
     }
@@ -388,8 +361,7 @@ app.post('/api/payment/getParams', async (req, res) => {
         try {
           const result = await orderRoutes.settlePaidOrder({
             orderId,
-            transactionId: `MOCK_TXN_${Date.now()}`,
-            broadcastToClients
+            transactionId: `MOCK_TXN_${Date.now()}`
           });
           console.log('模拟支付结果:', result);
         } catch (notifyError) {
@@ -399,31 +371,79 @@ app.post('/api/payment/getParams', async (req, res) => {
       return;
     }
 
-    const packageStr = `prepay_id=${generateNonceStr()}`;
-    const paySign = generateMD5Sign({
-      appId: config.bed.payment.wechat.appid,
-      timeStamp,
-      nonceStr,
-      package: packageStr,
-      signType: 'MD5'
-    }, config.bed.payment.wechat.apiKey);
+    // 真实微信支付
+    try {
+      wechatPay.setConfig({
+        appid: config.bed.payment.wechat.appid,
+        mchid: config.bed.payment.wechat.mchid,
+        apiKey: config.bed.payment.wechat.apiKey,
+        notifyUrl: config.bed.payment.wechat.notifyUrl
+      });
 
-    console.log('获取支付参数:', { orderId, openid });
-    res.json({
-      code: 200,
-      message: '获取支付参数成功',
-      data: { timeStamp, nonceStr, package: packageStr, signType: 'MD5', paySign }
-    });
+      const unifiedOrderResult = await wechatPay.unifiedOrder({
+        orderId,
+        totalFee: order.totalDeposit,
+        body: '医院租床服务',
+        openid: req.userOpenid || order.openid,
+        tradeType: 'JSAPI'
+      });
+
+      if (unifiedOrderResult.code !== 200) {
+        console.error('微信统一下单失败:', unifiedOrderResult);
+        return res.json({
+          code: unifiedOrderResult.code || 500,
+          message: `微信支付下单失败: ${unifiedOrderResult.message}`
+        });
+      }
+
+      const prepayId = unifiedOrderResult.data.prepayId;
+      const minipayParams = wechatPay.generateMinipayParams(prepayId);
+
+      res.json({
+        code: 200,
+        message: '获取支付参数成功',
+        data: {
+          timeStamp: minipayParams.timeStamp,
+          nonceStr: minipayParams.nonceStr,
+          package: minipayParams.package,
+          signType: minipayParams.signType,
+          paySign: minipayParams.paySign
+        }
+      });
+    } catch (payError) {
+      console.error('微信支付统一下单异常:', payError);
+      res.json({ code: 500, message: `微信支付下单异常: ${payError.message}` });
+    }
   } catch (error) {
     console.error('获取支付参数失败:', error);
     res.json({ code: 500, message: '获取支付参数失败' });
   }
 });
 
-app.post('/api/payment/notify', async (req, res) => {
+// 微信支付回调——使用 text 解析器接收 XML，并验证签名
+app.post('/api/payment/notify', express.text({ type: 'text/xml' }), async (req, res) => {
   try {
-    console.log('收到微信支付回调:', req.body);
-    const { out_trade_no, transaction_id } = req.body || {};
+    const xmlBody = typeof req.body === 'string' ? req.body : '';
+    const params = wechatPay.xmlToObject(xmlBody);
+
+    // 验证回调签名（非模拟模式）
+    const isMockPayment = !config.bed.payment.wechat.mchid ||
+      config.bed.payment.wechat.mchid === 'your_mchid' ||
+      !config.bed.payment.wechat.apiKey ||
+      config.bed.payment.wechat.apiKey === 'your_api_key';
+
+    if (!isMockPayment) {
+      const receivedSign = params.sign;
+      const paramsWithoutSign = { ...params };
+      delete paramsWithoutSign.sign;
+      const expectedSign = generateMD5Sign(paramsWithoutSign, config.bed.payment.wechat.apiKey);
+      if (!receivedSign || receivedSign !== expectedSign) {
+        console.error('微信支付回调签名验证失败');
+        return res.send('<xml><return_code><![CDATA[FAIL]]></return_code><return_msg><![CDATA[签名验证失败]]></return_msg></xml>');
+      }
+    }
+
+    const { out_trade_no, transaction_id } = params;
 
     if (!out_trade_no) {
       return res.send('<xml><return_code><![CDATA[FAIL]]></return_code><return_msg><![CDATA[参数错误]]></return_msg></xml>');
@@ -435,8 +455,7 @@ app.post('/api/payment/notify', async (req, res) => {
     } else if (order.status === 'unpaid') {
       const result = await orderRoutes.settlePaidOrder({
         orderId: out_trade_no,
-        transactionId: transaction_id,
-        broadcastToClients
+        transactionId: transaction_id
       });
       console.log('支付回调处理结果:', result);
     } else {
@@ -450,68 +469,18 @@ app.post('/api/payment/notify', async (req, res) => {
   }
 });
 
-app.get('/api/order/query/:orderId', requireAdminAuth, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.queryOrder(req, res);
-});
-app.get('/api/admin/order/query/:orderId', requireAdminAuth, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.queryOrder(req, res);
-});
+app.get('/api/admin/order/query/:orderId', requireAdminAuth, orderRoutes.queryOrder);
 
-app.get('/api/order/list', requireUserOpenid, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.getOrderList(req, res);
-});
-app.get('/api/me/orders', requireUserOpenid, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.getOrderList(req, res);
-});
-app.get('/api/admin/order/list', requireAdminAuth, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.getOrderList(req, res);
-});
+app.get('/api/me/orders', requireUserAuth, orderRoutes.getOrderList);
+app.get('/api/admin/order/list', requireAdminAuth, orderRoutes.getOrderList);
 
-app.post('/api/order/refund', requireUserOpenid, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.refundOrder(req, res);
-});
-app.post('/api/me/order/refund', requireUserOpenid, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.refundOrder(req, res);
-});
-app.post('/api/admin/order/refund', requireAdminAuth, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.refundOrder(req, res);
-});
+app.post('/api/me/order/refund', requireUserAuth, orderRoutes.refundOrder);
+app.post('/api/admin/order/refund', requireAdminAuth, orderRoutes.refundOrder);
 
-app.delete('/api/order/delete', requireAdminAuth, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.deleteOrder(req, res);
-});
-app.delete('/api/admin/order/delete', requireAdminAuth, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.deleteOrder(req, res);
-});
+app.delete('/api/admin/order/delete', requireAdminAuth, orderRoutes.deleteOrder);
 
-app.post('/api/order/cancel', requireUserOpenid, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.cancelOrder(req, res);
-});
-app.post('/api/me/order/cancel', requireUserOpenid, (req, res) => {
-  req.broadcastToClients = broadcastToClients;
-  orderRoutes.cancelOrder(req, res);
-});
+app.post('/api/me/order/cancel', requireUserAuth, orderRoutes.cancelOrder);
 
-app.get('/api/stats', requireAdminAuth, async (req, res) => {
-  try {
-    const stats = await orderRoutes.getOrderStats();
-    res.json({ code: 200, message: '查询成功', data: stats });
-  } catch (error) {
-    console.error('获取统计信息失败:', error);
-    res.json({ code: 500, message: '获取统计信息失败' });
-  }
-});
 app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
   try {
     const stats = await orderRoutes.getOrderStats();
@@ -519,21 +488,6 @@ app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
   } catch (error) {
     console.error('获取统计信息失败:', error);
     res.json({ code: 500, message: '获取统计信息失败' });
-  }
-});
-
-app.post('/api/notify/refresh', requireAdminAuth, (req, res) => {
-  try {
-    const { type, data } = req.body || {};
-    broadcastToMiniprogramClients({
-      type: type || 'data_update',
-      timestamp: Date.now(),
-      data: data || {}
-    });
-    res.json({ code: 200, message: '刷新通知发送成功', data: { miniprogramClientCount: wsMiniprogramClients.size } });
-  } catch (error) {
-    console.error('发送刷新通知失败:', error);
-    res.json({ code: 500, message: '发送刷新通知失败' });
   }
 });
 
@@ -596,13 +550,16 @@ const wssMiniprogram = new WebSocketLib.Server({ noServer: true });
 wssAdmin.on('connection', (ws, request) => {
   const urlParams = new URL(request.url, `http://${request.headers.host}`);
   const adminToken = urlParams.searchParams.get('adminToken');
+
   const adminAuth = verifyAdminToken(adminToken);
   if (!adminAuth) {
+    console.log('管理端WebSocket认证失败，关闭连接');
     ws.close(4001, 'unauthorized');
     return;
   }
 
-  const clientId = urlParams.searchParams.get('openid') || `admin_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+  console.log(`[${getTimestamp()}] 管理端WebSocket认证成功: ${adminAuth.username}`);
+  const clientId = `admin_${adminAuth.username}_${Date.now()}`;
   registerClient(wsAdminClients, clientId, ws, '管理端');
 
   ws.send(JSON.stringify({ type: 'connection_established', clientId, clientType: 'admin', timestamp: Date.now() }));
@@ -661,6 +618,10 @@ server.on('upgrade', (request, socket, head) => {
 async function initServer() {
   console.log('='.repeat(50));
   console.log('正在初始化服务器...');
+
+  // 向路由模块注入广播函数
+  bedTypeRoutes.setBroadcast(broadcastToClients);
+  orderRoutes.setBroadcast(broadcastToClients);
 
   if (config.database.type === 'mysql') {
     try {

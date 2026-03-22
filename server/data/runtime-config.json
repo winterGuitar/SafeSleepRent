@@ -75,9 +75,9 @@
       "description": "儿童专用尺寸，安全护栏，卡通图案",
       "price": 40,
       "deposit": 400,
-      "image": "/public/images/bed-1773494555165-203885668.png",
-      "stock": 18,
-      "available": false,
+      "image": "http://localhost:3000/public/images/bed-1773494555165-203885668.png",
+      "stock": 20,
+      "available": true,
       "features": [
         "儿童专用尺寸",
         "双重安全护栏",

@@ -209,16 +209,11 @@ Page({
       },
       success: (res) => {
         if (res.data.code === 200) {
-          const openid = res.data.data.openid
+          const { token, openid } = res.data.data
+          app.globalData.userToken = token
           app.globalData.openid = openid
-          console.log('获取到openid:', openid)
 
-          // 获取到openid后，重新连接WebSocket，使用真实身份
-          if (app.globalData.socketTask && app.globalData.socketTask.readyState === 1) {
-            console.log('使用设备ID连接，准备切换到openid')
-          }
-
-          // 等待一下再重新连接，避免频繁切换
+          // 获取到身份后重连 WebSocket，使用真实 openid
           setTimeout(() => {
             app.connectWebSocket()
           }, 1000)
@@ -287,18 +282,22 @@ Page({
   },
 
   createOrder: function(beds) {
+    if (!app.globalData.userToken) {
+      wx.showToast({ title: '请先登录', icon: 'none' })
+      return
+    }
+
     wx.showLoading({
       title: '创建订单中...'
     })
 
-    // 调用后端接口创建订单
     wx.request({
       url: config.getApiUrl(config.apiPaths.createOrder),
       method: 'POST',
+      header: { 'x-user-token': app.globalData.userToken },
       data: {
         beds: beds,
-        totalDeposit: this.data.totalDeposit,
-        openid: app.globalData.openid || 'test_openid'
+        totalDeposit: this.data.totalDeposit
       },
       success: (res) => {
         wx.hideLoading()
@@ -324,18 +323,15 @@ Page({
   },
 
   requestPayment: function(orderId) {
-    // 开发环境：直接模拟支付，不调用微信支付接口
     wx.showLoading({
       title: '支付处理中...'
     })
 
-    // 调用后端API标记支付成功
     wx.request({
       url: config.getApiUrl(config.apiPaths.payOrder),
       method: 'POST',
-      data: {
-        orderId: orderId
-      },
+      header: { 'x-user-token': app.globalData.userToken },
+      data: { orderId: orderId },
       success: (res) => {
         wx.hideLoading()
 
@@ -371,10 +367,8 @@ Page({
     wx.request({
       url: config.getApiUrl(config.apiPaths.myCancelOrder),
       method: 'POST',
-      data: {
-        orderId: orderId,
-        openid: app.globalData.openid || 'test_openid'
-      },
+      header: { 'x-user-token': app.globalData.userToken },
+      data: { orderId: orderId },
       success: () => {
         // 重新加载床位数据
         this.loadBedTypes()

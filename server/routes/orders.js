@@ -1,4 +1,5 @@
 const config = require('../config/appConfig')
+const wechatPay = require('../wechat-pay')
 const {
   cloneRuntimeConfig,
   loadRuntimeConfig,
@@ -7,6 +8,12 @@ const {
 } = require('../data/runtimeStore')
 
 let orderDao = null
+let inventoryService = null
+let _broadcast = null
+
+function setBroadcast(fn) {
+  _broadcast = fn
+}
 
 try {
   if (config.database.type === 'mysql') {
@@ -17,6 +24,14 @@ try {
   }
 } catch (error) {
   console.log('订单路由: 数据库未配置，使用内存存储模式')
+}
+
+// 加载库存服务
+try {
+  inventoryService = require('../services/inventoryService')
+} catch (error) {
+  console.log('库存服务加载失败，将使用旧的文件存储模式:', error.message)
+  inventoryService = null
 }
 
 const orders = new Map()
@@ -39,20 +54,19 @@ function generateOrderId() {
 }
 
 function resolveRequestOpenid(req) {
-  return req.userOpenid || req.query.openid || (req.body && req.body.openid) || null
+  return req.userOpenid || null
 }
 
 function isOrderOwnedByRequester(order, req) {
-  const openid = resolveRequestOpenid(req)
-  if (!openid) {
-    return true
-  }
-
+  // 管理员可以访问任意订单
+  if (req.adminUser) return true
+  const openid = req.userOpenid
+  if (!openid) return false
   return Boolean(order) && order.openid === openid
 }
 
-function getBroadcastFn(broadcastToClients) {
-  return typeof broadcastToClients === 'function' ? broadcastToClients : null
+function getBroadcastFn() {
+  return typeof _broadcast === 'function' ? _broadcast : null
 }
 
 async function getOrderById(orderId) {
@@ -176,8 +190,8 @@ function applyInventoryDelta(configData, beds, delta) {
   }
 }
 
-function broadcastInventoryUpdate(broadcastToClients, configData) {
-  const broadcast = getBroadcastFn(broadcastToClients)
+function broadcastInventoryUpdate(configData) {
+  const broadcast = getBroadcastFn()
   if (!broadcast) {
     return
   }
@@ -188,8 +202,8 @@ function broadcastInventoryUpdate(broadcastToClients, configData) {
   })
 }
 
-function broadcastOrderEvent(broadcastToClients, type, orderId) {
-  const broadcast = getBroadcastFn(broadcastToClients)
+function broadcastOrderEvent(type, orderId) {
+  const broadcast = getBroadcastFn()
   if (!broadcast) {
     return
   }
@@ -200,53 +214,55 @@ function broadcastOrderEvent(broadcastToClients, type, orderId) {
   })
 }
 
-async function settlePaidOrder({ orderId, transactionId, broadcastToClients }) {
-  return withRuntimeConfigLock(async () => {
-    const order = await getOrderById(orderId)
-    if (!order) {
-      return {
-        code: 404,
-        message: '订单不存在'
-      }
-    }
-
-    if (order.status !== 'unpaid') {
-      return {
-        code: 400,
-        message: '订单状态不允许支付',
-        data: order
-      }
-    }
-
-    const configData = await loadRuntimeConfig()
-    const snapshot = cloneRuntimeConfig(configData)
-    const validation = validateBeds(configData, order.beds)
-    if (!validation.ok) {
-      return {
-        code: 400,
-        message: validation.message
-      }
-    }
-
-    applyInventoryDelta(configData, order.beds, -1)
-
-    const saved = await saveRuntimeConfig(configData)
-    if (!saved) {
-      return {
-        code: 500,
-        message: '更新库存失败'
-      }
-    }
-
+async function settlePaidOrder({ orderId, transactionId }) {
+  // 如果库存服务可用，使用新的库存管理逻辑
+  if (inventoryService) {
     try {
+      const order = await getOrderById(orderId)
+      if (!order) {
+        return {
+          code: 404,
+          message: '订单不存在'
+        }
+      }
+
+      if (order.status !== 'unpaid') {
+        return {
+          code: 400,
+          message: '订单状态不允许支付',
+          data: order
+        }
+      }
+
+      // 使用库存服务验证库存
+      const validation = await inventoryService.validateInventory(order.beds)
+      if (!validation.ok) {
+        return {
+          code: 400,
+          message: validation.message
+        }
+      }
+
+      // 扣减库存（原子操作）
+      const deductResult = await inventoryService.deductOrderInventory(order.beds)
+      if (!deductResult.success) {
+        return {
+          code: 500,
+          message: `库存扣减失败: ${deductResult.message}`
+        }
+      }
+
+      // 更新订单状态
       const updatedOrder = await updateStoredOrderStatus(orderId, {
         status: 'paid',
         payTime: new Date(),
         transactionId: transactionId || order.transactionId || `MOCK_TXN_${Date.now()}`
       })
 
-      broadcastInventoryUpdate(broadcastToClients, configData)
-      broadcastOrderEvent(broadcastToClients, 'order_paid', orderId)
+      // 广播库存更新
+      const bedTypes = await inventoryService.getBedTypes()
+      broadcastInventoryUpdate({ bedTypes })
+      broadcastOrderEvent('order_paid', orderId)
 
       return {
         code: 200,
@@ -254,25 +270,109 @@ async function settlePaidOrder({ orderId, transactionId, broadcastToClients }) {
         data: updatedOrder
       }
     } catch (error) {
-      await saveRuntimeConfig(snapshot)
-      throw error
+      console.error('支付处理失败:', error)
+      return {
+        code: 500,
+        message: `支付处理失败: ${error.message}`
+      }
     }
-  })
+  } else {
+    // 回退到原来的文件锁逻辑
+    return withRuntimeConfigLock(async () => {
+      const order = await getOrderById(orderId)
+      if (!order) {
+        return {
+          code: 404,
+          message: '订单不存在'
+        }
+      }
+
+      if (order.status !== 'unpaid') {
+        return {
+          code: 400,
+          message: '订单状态不允许支付',
+          data: order
+        }
+      }
+
+      const configData = await loadRuntimeConfig()
+      const snapshot = cloneRuntimeConfig(configData)
+      const validation = validateBeds(configData, order.beds)
+      if (!validation.ok) {
+        return {
+          code: 400,
+          message: validation.message
+        }
+      }
+
+      applyInventoryDelta(configData, order.beds, -1)
+
+      const saved = await saveRuntimeConfig(configData)
+      if (!saved) {
+        return {
+          code: 500,
+          message: '更新库存失败'
+        }
+      }
+
+      try {
+        const updatedOrder = await updateStoredOrderStatus(orderId, {
+          status: 'paid',
+          payTime: new Date(),
+          transactionId: transactionId || order.transactionId || `MOCK_TXN_${Date.now()}`
+        })
+
+        broadcastInventoryUpdate(configData)
+        broadcastOrderEvent('order_paid', orderId)
+
+        return {
+          code: 200,
+          message: '支付成功',
+          data: updatedOrder
+        }
+      } catch (error) {
+        await saveRuntimeConfig(snapshot)
+        throw error
+      }
+    })
+  }
 }
 
-async function restoreOrderInventory(order, broadcastToClients) {
-  return withRuntimeConfigLock(async () => {
-    const configData = await loadRuntimeConfig()
-    applyInventoryDelta(configData, order.beds, 1)
+async function restoreOrderInventory(order) {
+  // 如果库存服务可用，使用新的库存管理逻辑
+  if (inventoryService) {
+    try {
+      // 恢复库存（原子操作）
+      const restoreResult = await inventoryService.restoreOrderInventory(order.beds)
+      if (!restoreResult.success) {
+        console.error('库存恢复失败:', restoreResult.message)
+        return false
+      }
 
-    const saved = await saveRuntimeConfig(configData)
-    if (!saved) {
+      // 广播库存更新
+      const bedTypes = await inventoryService.getBedTypes()
+      broadcastInventoryUpdate({ bedTypes })
+
+      return true
+    } catch (error) {
+      console.error('库存恢复失败:', error)
       return false
     }
+  } else {
+    // 回退到原来的文件锁逻辑
+    return withRuntimeConfigLock(async () => {
+      const configData = await loadRuntimeConfig()
+      applyInventoryDelta(configData, order.beds, 1)
 
-    broadcastInventoryUpdate(broadcastToClients, configData)
-    return true
-  })
+      const saved = await saveRuntimeConfig(configData)
+      if (!saved) {
+        return false
+      }
+
+      broadcastInventoryUpdate(configData)
+      return true
+    })
+  }
 }
 
 async function createOrder(req, res) {
@@ -286,8 +386,14 @@ async function createOrder(req, res) {
       })
     }
 
-    const configData = await loadRuntimeConfig()
-    const validation = validateBeds(configData, beds)
+    // 库存验证
+    let validation
+    if (inventoryService) {
+      validation = await inventoryService.validateInventory(beds)
+    } else {
+      const configData = await loadRuntimeConfig()
+      validation = validateBeds(configData, beds)
+    }
     if (!validation.ok) {
       return res.json({
         code: 400,
@@ -342,8 +448,7 @@ async function payOrder(req, res) {
 
     const result = await settlePaidOrder({
       orderId,
-      transactionId: req.body.transactionId,
-      broadcastToClients: req.broadcastToClients
+      transactionId: req.body.transactionId
     })
 
     res.json(result)
@@ -442,7 +547,7 @@ async function refundOrder(req, res) {
     if (!isOrderOwnedByRequester(order, req)) {
       return res.json({
         code: 403,
-        message: 'No permission to access this order'
+        message: '无权操作此订单'
       })
     }
 
@@ -453,7 +558,35 @@ async function refundOrder(req, res) {
       })
     }
 
-    const restored = await restoreOrderInventory(order, req.broadcastToClients)
+    // 调用微信退款接口（非模拟模式）
+    const isMockPayment = !config.bed.payment.wechat.mchid ||
+      config.bed.payment.wechat.mchid === 'your_mchid' ||
+      !config.bed.payment.wechat.apiKey ||
+      config.bed.payment.wechat.apiKey === 'your_api_key'
+
+    if (!isMockPayment) {
+      wechatPay.setConfig({
+        appid: config.bed.payment.wechat.appid,
+        mchid: config.bed.payment.wechat.mchid,
+        apiKey: config.bed.payment.wechat.apiKey,
+        notifyUrl: config.bed.payment.wechat.notifyUrl
+      })
+      const refundResult = await wechatPay.refund({
+        orderId,
+        totalFee: order.totalDeposit,
+        refundFee: order.totalDeposit,
+        refundDesc: '押金退还'
+      })
+      if (refundResult.code !== 200) {
+        console.error('微信退款失败:', refundResult)
+        return res.json({
+          code: 500,
+          message: `微信退款失败: ${refundResult.message}`
+        })
+      }
+    }
+
+    const restored = await restoreOrderInventory(order)
     if (!restored) {
       return res.json({
         code: 500,
@@ -466,7 +599,7 @@ async function refundOrder(req, res) {
       refundTime: new Date()
     })
 
-    broadcastOrderEvent(req.broadcastToClients, 'order_refunded', orderId)
+    broadcastOrderEvent('order_refunded', orderId)
 
     res.json({
       code: 200,
@@ -506,7 +639,7 @@ async function deleteOrder(req, res) {
       })
     }
 
-    broadcastOrderEvent(req.broadcastToClients, 'order_deleted', orderId)
+    broadcastOrderEvent('order_deleted', orderId)
 
     res.json({
       code: 200,
@@ -542,7 +675,7 @@ async function cancelOrder(req, res) {
     if (!isOrderOwnedByRequester(order, req)) {
       return res.json({
         code: 403,
-        message: 'No permission to access this order'
+        message: '无权操作此订单'
       })
     }
 
@@ -558,7 +691,7 @@ async function cancelOrder(req, res) {
       cancelTime: new Date()
     })
 
-    broadcastOrderEvent(req.broadcastToClients, 'order_cancelled', orderId)
+    broadcastOrderEvent('order_cancelled', orderId)
 
     res.json({
       code: 200,
@@ -588,8 +721,7 @@ async function mockPayNotify(req, res) {
       try {
         await settlePaidOrder({
           orderId,
-          transactionId: `MOCK_TXN_${Date.now()}`,
-          broadcastToClients: req.broadcastToClients
+          transactionId: `MOCK_TXN_${Date.now()}`
         })
       } catch (error) {
         console.error('模拟支付回调失败:', error)
@@ -610,6 +742,7 @@ async function mockPayNotify(req, res) {
 }
 
 module.exports = {
+  setBroadcast,
   createOrder,
   payOrder,
   queryOrder,

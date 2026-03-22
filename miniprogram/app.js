@@ -4,6 +4,7 @@ App({
   globalData: {
     userInfo: null,
     openid: null,
+    userToken: null,
     deviceId: null,
     cart: [],
     totalDeposit: 0,
